@@ -1,10 +1,9 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
-    "allowJs": true,
     "moduleDetection": "force",
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -15,28 +14,20 @@
     "baseUrl": "./",
     "composite": true,
     "declaration": true,
+    "declarationMap": true,
     "paths": {
-      "#ai-sim/*": ["src/ai-sim/*"],
-      "#core/*": ["src/core/*"],
-      "#modules/*": ["modules/dist/*"],
-      "#interfaces/*": ["src/interfaces/*"],
-      "#utils/*": ["src/utils/*"],
-      "bitecs": ["node_modules/bitecs"],
-      "bitecs/core": ["node_modules/bitecs/core/index.d.ts"],
-      "bitecs/core/*": ["node_modules/bitecs/core/*"]
+      "#chaincraft/*": ["src/*"],
+      "#gamedef/*": ["../gamedef/src/*"]
     },
     "typeRoots": [
-      "./node_modules/@types",
-      "./src/types",
-      "./node_modules/bitecs/core"
+      "./node_modules/@types"
     ],
-    "types": ["jest", "node"], // Empty array to prevent automatic type inclusion
+    "types": ["jest", "node"]
   },
   "include": ["src/**/*"],
   "exclude": [
     "node_modules",
-    "modules",
-    "src/interfaces/discord",
-    "src/interfaces/telegram"
+    "src-old",
+    "modules"
   ]
 }
