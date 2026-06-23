@@ -8,16 +8,17 @@
 
 import type { GameSession, EffectContext } from '#chaincraft/types.js';
 import { resolveValue } from './resolve-value.js';
+import type { PropertyValue } from './resolve-value.js';
 import { selectGamepieces } from './gamepiece-selector.js';
+import type { GamepieceSelector } from './gamepiece-selector.js';
+
+type UpdateEffectDef = { pieces: GamepieceSelector; property: string; value: PropertyValue };
 
 export async function executeUpdate(
   session: GameSession,
-  ctx: EffectContext,
+  ctx: EffectContext<UpdateEffectDef>,
 ): Promise<void> {
-  const def = ctx.effectDef;
-  const selector = def['pieces'] as Record<string, unknown>;
-  const property = def['property'] as string;
-  const pv = def['value'] as import('./resolve-value.js').PropertyValue;
+  const { pieces: selector, property, value: pv } = ctx.effectDef;
 
   const pieceIds = selectGamepieces(session, ctx, selector);
 

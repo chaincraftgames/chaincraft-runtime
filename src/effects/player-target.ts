@@ -6,9 +6,10 @@
 // determine which player(s) an effect applies to.
 // ---------------------------------------------------------------------------
 
-import type { GameSession, EffectContext } from '#chaincraft/types.js';
+import type { GameSession, EffectContext, PlayerId } from '#chaincraft/types.js';
 import { getInventory } from '#chaincraft/inventory/index.js';
 import { getPlayerState } from '#chaincraft/state/accessors.js';
+import { resolveStateVar } from './resolve-value.js';
 
 // ---------------------------------------------------------------------------
 // PlayerTarget types (mirrors gamedef PlayerTargetSchema)
@@ -30,6 +31,29 @@ export type PlayerTarget =
   | { kind: 'param'; inputId: string }
   | { kind: 'stateRef'; path: string }
   | { kind: 'matching'; condition: JsonLogicValue };
+
+/**
+ * Resolve a dynamic player reference ({ stateRef } or { param }) to a single
+ * concrete validated player ID, or undefined if the reference cannot be resolved
+ * or the resolved value is not a known player in the session.
+ *
+ * Used by move and gamepiece-selector to target a specific player dynamically.
+ */
+export function resolvePlayerRef(
+  session: GameSession,
+  ctx: EffectContext,
+  ref: { stateRef: string } | { param: string },
+): PlayerId | undefined {
+  let val: unknown;
+  if ('stateRef' in ref) {
+    val = resolveStateVar(session, ctx, ref.stateRef);
+  } else if ('param' in ref) {
+    val = ctx.actionInputs[ref.param];
+  }
+  if (typeof val !== 'string') return undefined;
+  if (!session.state.players[val]) return undefined;
+  return val as PlayerId;
+}
 
 // ---------------------------------------------------------------------------
 // Resolution
@@ -81,11 +105,10 @@ export function resolvePlayerTarget(
   }
 
   if (target.kind === 'stateRef') {
-    const segments = target.path.split('.');
-    if (segments[0] !== 'game' || segments[1] !== 'property') {
-      throw new Error(`Player target stateRef path "${target.path}" must be game.property.<id>`);
+    if (!target.path.startsWith('game.property.') && !target.path.startsWith('player.property.')) {
+      throw new Error(`Player target stateRef path "${target.path}" must be game.property.<id> or player.property.<id>`);
     }
-    const playerId = session.state.gameProperties[segments[2]];
+    const playerId = resolveStateVar(session, ctx, target.path);
     if (typeof playerId !== 'string') {
       throw new Error(
         `Player target stateRef "${target.path}" resolved to ${typeof playerId}, expected string player ID`,

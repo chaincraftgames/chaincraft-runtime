@@ -18,17 +18,16 @@ type OptionEntry = { value: string | number | boolean; weight?: number };
 type OptionsSource = { kind: 'options'; options: OptionEntry[] };
 type RangeSource = { kind: 'range'; min: number; max: number };
 type RandomSource = OptionsSource | RangeSource;
+type SetRandomEffectDef = { source: RandomSource; path: string };
 
 export async function executeSetRandom(
   session: GameSession,
-  ctx: EffectContext,
+  ctx: EffectContext<SetRandomEffectDef>,
 ): Promise<void> {
-  const def = ctx.effectDef;
-  const source = def['source'] as RandomSource;
-  const path = def['path'] as string;
+  const { source, path } = ctx.effectDef;
 
   const result = pickRandom(session, source);
-  writeToPath(session, ctx, path, result);
+  writeToPath(session, ctx.actorId, path, result);
 }
 
 function pickRandom(
@@ -68,7 +67,7 @@ function pickRandom(
 
 function writeToPath(
   session: GameSession,
-  ctx: EffectContext,
+  actorId: string | null,
   path: string,
   value: unknown,
 ): void {
@@ -77,7 +76,7 @@ function writeToPath(
   if (segments[0] === 'game' && segments[1] === 'property') {
     session.state.gameProperties[segments[2]] = value;
   } else if (segments[0] === 'player' && segments[1] === 'property') {
-    const playerId = ctx.actorId;
+    const playerId = actorId;
     if (!playerId) {
       throw new Error(
         `set-random to player property "${segments[2]}" requires an actorId`,

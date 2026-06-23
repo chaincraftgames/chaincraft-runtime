@@ -107,7 +107,7 @@ export function resolveValue(
 }
 
 /**
- * Resolve a dot-path state variable to its value.
+ * Resolve a dot-path state reference to its value.
  *
  * Supported paths:
  *   game.property.<id>           — game-scoped property (stored or computed)
@@ -115,7 +115,7 @@ export function resolveValue(
  *   game.inventory.<id>.count    — game-level inventory piece count
  *   player.inventory.<id>.count  — target player's inventory piece count
  */
-function resolveStateVar(session: GameSession, ctx: EffectContext, path: string): unknown {
+export function resolveStateVar(session: GameSession, ctx: EffectContext, path: string): unknown {
   const segments = path.split('.');
 
   // game.property.<id>

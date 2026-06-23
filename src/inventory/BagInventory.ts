@@ -1,4 +1,4 @@
-import type { BagInventoryData, InventoryPlacement, SelectionMode } from '../types.js';
+import type { BagInventoryData, InventoryPlacement, RngProvider, SelectionMode } from '../types.js';
 import type { Inventory } from './Inventory.js';
 import { pickRandom } from './utils.js';
 
@@ -7,7 +7,7 @@ export class BagInventory implements Inventory {
 
   constructor(private readonly data: BagInventoryData) {}
 
-  select(mode: SelectionMode, count: number = 1): string[] {
+  select(mode: SelectionMode, count: number = 1, rng?: RngProvider): string[] {
     const { pieceIds } = this.data;
     if (typeof mode === 'object') {
       return pieceIds.includes(mode.id) ? [mode.id] : [];
@@ -20,7 +20,8 @@ export class BagInventory implements Inventory {
       case 'bottom':
         return pieceIds.slice(-count);
       case 'random':
-        return pickRandom(pieceIds, count);
+        if (!rng) throw new Error('RNG required for random selection');
+        return pickRandom(pieceIds, count, rng);
     }
   }
 
@@ -48,7 +49,7 @@ export class BagInventory implements Inventory {
     pieceIds.pop();
   }
 
-  shuffle(): void {
+  shuffle(_rng: RngProvider): void {
     // No-op — bags are unordered
   }
 

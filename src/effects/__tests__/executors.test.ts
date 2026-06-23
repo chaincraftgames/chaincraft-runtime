@@ -3,6 +3,8 @@ import { executeSetState } from '../set-state.js';
 import { executeUpdate } from '../update.js';
 import { executeSetRandom } from '../set-random.js';
 import { executeMessage } from '../message.js';
+import { executeFlip } from '../flip.js';
+import { executeRoll } from '../roll.js';
 import { createSeededRng } from '#chaincraft/rng/seeded.js';
 
 // ---------------------------------------------------------------------------
@@ -87,7 +89,8 @@ function makeSession(seed = 42): GameSession {
   };
 }
 
-function makeCtx(overrides?: Partial<EffectContext>): EffectContext {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeCtx(overrides?: Partial<EffectContext>): EffectContext<any> {
   return {
     actorId: 'p1',
     actionInputs: {},
@@ -297,6 +300,72 @@ describe('executeSetState', () => {
     }));
     expect(session.state.players['p1'].properties['roundsWon']).toBe(0);
     expect(session.state.players['p2'].properties['roundsWon']).toBe(0);
+  });
+  // -- ref-type validation --
+
+  it('accepts a valid player-id ref write', async () => {
+    const session = makeSession();
+    session.config.gameProperties['gameWinner'] = { mutable: true, refType: 'player-id' };
+    await expect(
+      executeSetState(session, makeCtx({
+        effectDef: { path: 'game.property.gameWinner', value: 'p1' },
+      }))
+    ).resolves.toBeUndefined();
+    expect(session.state.gameProperties['gameWinner']).toBe('p1');
+  });
+
+  it('throws when writing an unknown player ID to a player-id ref property', async () => {
+    const session = makeSession();
+    session.config.gameProperties['gameWinner'] = { mutable: true, refType: 'player-id' };
+    await expect(
+      executeSetState(session, makeCtx({
+        effectDef: { path: 'game.property.gameWinner', value: 'p99' },
+      }))
+    ).rejects.toThrow('not a valid player ID');
+  });
+
+  it('accepts a valid gamepiece-id ref write', async () => {
+    const session = makeSession();
+    session.config.gameProperties['gameWinner'] = { mutable: true, refType: 'gamepiece-id' };
+    session.state.gameProperties['gameWinner'] = '';
+    await expect(
+      executeSetState(session, makeCtx({
+        effectDef: { path: 'game.property.gameWinner', value: 'weapon-1' },
+      }))
+    ).resolves.toBeUndefined();
+    expect(session.state.gameProperties['gameWinner']).toBe('weapon-1');
+  });
+
+  it('throws when writing an unknown gamepiece ID to a gamepiece-id ref property', async () => {
+    const session = makeSession();
+    session.config.gameProperties['gameWinner'] = { mutable: true, refType: 'gamepiece-id' };
+    await expect(
+      executeSetState(session, makeCtx({
+        effectDef: { path: 'game.property.gameWinner', value: 'no-such-piece' },
+      }))
+    ).rejects.toThrow('not a valid gamepiece ID');
+  });
+
+  it('accepts a valid player-role-id ref write when roles configured', async () => {
+    const session = makeSession();
+    session.config.roles = ['dealer', 'challenger'];
+    session.config.gameProperties['gameWinner'] = { mutable: true, refType: 'player-role-id' };
+    await expect(
+      executeSetState(session, makeCtx({
+        effectDef: { path: 'game.property.gameWinner', value: 'dealer' },
+      }))
+    ).resolves.toBeUndefined();
+  });
+
+  it('throws when writing an unknown role ID to a player-role-id ref property', async () => {
+    const session = makeSession();
+    session.config.roles = ['dealer', 'challenger'];
+    session.config.gameProperties['gameWinner'] = { mutable: true, refType: 'player-role-id' };
+    await expect(
+      executeSetState(session, makeCtx({
+        effectDef: { path: 'game.property.gameWinner', value: 'spy' },
+      }))
+    ).rejects.toThrow('not a valid player role ID');
   });
 });
 
@@ -611,7 +680,7 @@ describe('executeMessage', () => {
   it('pushes a public message to all', async () => {
     const session = makeSession();
     await executeMessage(session, makeCtx({
-      effectDef: { content: 'Round begins!' },
+      effectDef: { template: 'Round begins!' },
     }));
     expect(session.outbox).toHaveLength(1);
     expect(session.outbox[0]).toEqual({
@@ -623,7 +692,7 @@ describe('executeMessage', () => {
   it('pushes a private message to a specific player', async () => {
     const session = makeSession();
     await executeMessage(session, makeCtx({
-      effectDef: { content: 'Your secret weapon is ready.', to: 'p1' },
+      effectDef: { template: 'Your secret weapon is ready.', to: 'p1' },
     }));
     expect(session.outbox[0]).toEqual({
       to: 'p1',
@@ -634,11 +703,171 @@ describe('executeMessage', () => {
   it('accumulates multiple messages', async () => {
     const session = makeSession();
     await executeMessage(session, makeCtx({
-      effectDef: { content: 'First' },
+      effectDef: { template: 'First' },
     }));
     await executeMessage(session, makeCtx({
-      effectDef: { content: 'Second' },
+      effectDef: { template: 'Second' },
     }));
     expect(session.outbox).toHaveLength(2);
+  });
+
+  it('interpolates {{input.<id>}} tokens', async () => {
+    const session = makeSession();
+    await executeMessage(session, makeCtx({
+      actionInputs: { weaponName: 'Anvil Launcher' },
+      effectDef: { template: "Your weapon '{{input.weaponName}}' has been registered." },
+    }));
+    expect(session.outbox[0].content).toBe("Your weapon 'Anvil Launcher' has been registered.");
+  });
+
+  it('interpolates {{state.game.property.<id>}} tokens', async () => {
+    const session = makeSession();
+    session.state.gameProperties['currentRound'] = 3;
+    await executeMessage(session, makeCtx({
+      effectDef: { template: 'Round {{state.game.property.currentRound}} begins.' },
+    }));
+    expect(session.outbox[0].content).toBe('Round 3 begins.');
+  });
+
+  it('interpolates {{state.players.<id>.property.<id>}} tokens', async () => {
+    const session = makeSession();
+    session.state.players['p1'].properties['roundsWon'] = 2;
+    await executeMessage(session, makeCtx({
+      effectDef: { template: 'Player p1 has won {{state.players.p1.property.roundsWon}} rounds.' },
+    }));
+    expect(session.outbox[0].content).toBe('Player p1 has won 2 rounds.');
+  });
+
+  it('leaves unrecognised tokens as-is', async () => {
+    const session = makeSession();
+    await executeMessage(session, makeCtx({
+      effectDef: { template: 'Hello {{llm.greeting}}' },
+    }));
+    expect(session.outbox[0].content).toBe('Hello {{llm.greeting}}');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// flip
+// ---------------------------------------------------------------------------
+
+describe('executeFlip', () => {
+  it('sets face-down piece to face-up', async () => {
+    const session = makeSession();
+    session.state.gamepieces['weapon-1'].faceUp = false;
+    await executeFlip(session, makeCtx({
+      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'face-up' },
+    }));
+    expect(session.state.gamepieces['weapon-1'].faceUp).toBe(true);
+  });
+
+  it('sets face-up piece to face-down', async () => {
+    const session = makeSession();
+    session.state.gamepieces['weapon-1'].faceUp = true;
+    await executeFlip(session, makeCtx({
+      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'face-down' },
+    }));
+    expect(session.state.gamepieces['weapon-1'].faceUp).toBe(false);
+  });
+
+  it('toggle flips face-up piece to face-down', async () => {
+    const session = makeSession();
+    session.state.gamepieces['weapon-1'].faceUp = true;
+    await executeFlip(session, makeCtx({
+      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'toggle' },
+    }));
+    expect(session.state.gamepieces['weapon-1'].faceUp).toBe(false);
+  });
+
+  it('toggle flips face-down piece to face-up', async () => {
+    const session = makeSession();
+    session.state.gamepieces['weapon-1'].faceUp = false;
+    await executeFlip(session, makeCtx({
+      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'toggle' },
+    }));
+    expect(session.state.gamepieces['weapon-1'].faceUp).toBe(true);
+  });
+
+  it('flips multiple pieces', async () => {
+    const session = makeSession(42);
+    session.state.players['p1'].inventories['forge'] = { structure: 'stack', pieceIds: ['weapon-1', 'weapon-2'] };
+    session.state.gamepieces['weapon-2'] = {
+      typeId: 'weapon', ownerId: 'p1',
+      properties: { description: '', rps: 'paper', imageUrl: '' },
+      faceUp: true, exhausted: false, visibleTo: null,
+    };
+    await executeFlip(session, makeCtx({
+      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'face-down' },
+    }));
+    expect(session.state.gamepieces['weapon-1'].faceUp).toBe(false);
+    expect(session.state.gamepieces['weapon-2'].faceUp).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// roll
+// ---------------------------------------------------------------------------
+
+function makeDiceSession(): GameSession {
+  const session = makeSession();
+  session.config.gamepieceTypes['die'] = { category: 'dice', faceCount: 6, properties: {} };
+  session.config.inventories['dice-tray'] = {
+    structure: 'none', scope: 'game', visibility: 'always', accepts: ['die'],
+  };
+  session.state.gameInventories['dice-tray'] = { structure: 'none', pieceIds: ['die-1', 'die-2'] };
+  session.state.gamepieces['die-1'] = {
+    typeId: 'die', ownerId: 'game', properties: {}, faceUp: true, exhausted: false, visibleTo: null,
+  };
+  session.state.gamepieces['die-2'] = {
+    typeId: 'die', ownerId: 'game', properties: {}, faceUp: true, exhausted: false, visibleTo: null,
+  };
+  return session;
+}
+
+describe('executeRoll', () => {
+  it('sets faceValue in [1, faceCount] for a single die', async () => {
+    const session = makeDiceSession();
+    await executeRoll(session, makeCtx({
+      effectDef: { pieces: { inventory: 'dice-tray', select: 'top' } },
+    }));
+    const fv = session.state.gamepieces['die-1'].faceValue; // bag top = first
+    expect(fv).toBeGreaterThanOrEqual(1);
+    expect(fv).toBeLessThanOrEqual(6);
+  });
+
+  it('rolls all selected dice independently', async () => {
+    const session = makeDiceSession();
+    await executeRoll(session, makeCtx({
+      effectDef: { pieces: { inventory: 'dice-tray', select: 'all' } },
+    }));
+    for (const id of ['die-1', 'die-2']) {
+      const fv = session.state.gamepieces[id].faceValue;
+      expect(fv).toBeGreaterThanOrEqual(1);
+      expect(fv).toBeLessThanOrEqual(6);
+    }
+  });
+
+  it('rolls are deterministic with the same seed', async () => {
+    const a = makeDiceSession();
+    const b = makeSession(); // fresh session with same seed (42)
+    b.config.gamepieceTypes['die'] = { category: 'dice', faceCount: 6, properties: {} };
+    b.config.inventories['dice-tray'] = { structure: 'none', scope: 'game', visibility: 'always', accepts: ['die'] };
+    b.state.gameInventories['dice-tray'] = { structure: 'none', pieceIds: ['die-1', 'die-2'] };
+    b.state.gamepieces['die-1'] = { typeId: 'die', ownerId: 'game', properties: {}, faceUp: true, exhausted: false, visibleTo: null };
+    b.state.gamepieces['die-2'] = { typeId: 'die', ownerId: 'game', properties: {}, faceUp: true, exhausted: false, visibleTo: null };
+    const def = { effectDef: { pieces: { inventory: 'dice-tray', select: 'all' } } };
+    await executeRoll(a, makeCtx(def));
+    await executeRoll(b, makeCtx(def));
+    expect(a.state.gamepieces['die-1'].faceValue).toBe(b.state.gamepieces['die-1'].faceValue);
+    expect(a.state.gamepieces['die-2'].faceValue).toBe(b.state.gamepieces['die-2'].faceValue);
+  });
+
+  it('skips pieces whose type has no faceCount', async () => {
+    const session = makeSession();
+    // weapon type has no faceCount
+    await executeRoll(session, makeCtx({
+      effectDef: { pieces: { inventory: 'forge', select: 'all' } },
+    }));
+    expect(session.state.gamepieces['weapon-1'].faceValue).toBeUndefined();
   });
 });

@@ -1,6 +1,11 @@
-import type { GridInventoryData, InventoryPlacement, SelectionMode } from '../types.js';
-import type { Inventory } from './Inventory.js';
-import { pickRandom } from './utils.js';
+import type { 
+  GridInventoryData, 
+  InventoryPlacement, 
+  RngProvider, 
+  SelectionMode 
+} from '#chaincraft/types.js';
+import type { Inventory } from '#chaincraft/inventory/Inventory.js';
+import { pickRandom } from '#chaincraft/inventory/utils.js';
 
 export function cellKey(row: string | number, col: string | number): string {
   return `${row}:${col}`;
@@ -11,7 +16,7 @@ export class GridInventory implements Inventory {
 
   constructor(private readonly data: GridInventoryData) {}
 
-  select(mode: SelectionMode, count: number = 1): string[] {
+  select(mode: SelectionMode, count: number = 1, rng?: RngProvider): string[] {
     if (typeof mode === 'object') {
       return Object.values(this.data.cells).includes(mode.id) ? [mode.id] : [];
     }
@@ -24,7 +29,8 @@ export class GridInventory implements Inventory {
         // No meaningful top/bottom on a grid — return first N occupied
         return occupied.slice(0, count);
       case 'random':
-        return pickRandom(occupied, count);
+        if (!rng) throw new Error('RNG required for random selection');
+        return pickRandom(occupied, count, rng);
     }
   }
 
@@ -54,7 +60,7 @@ export class GridInventory implements Inventory {
     this.data.cells[key] = null;
   }
 
-  shuffle(): void {
+  shuffle(_rng: RngProvider): void {
     // No-op — grid positions are spatially meaningful
   }
 

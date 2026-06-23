@@ -1,13 +1,18 @@
-import type { StackInventoryData, InventoryPlacement, SelectionMode } from '../types.js';
-import type { Inventory } from './Inventory.js';
-import { pickRandom, fisherYatesShuffle } from './utils.js';
+import type { 
+  StackInventoryData, 
+  InventoryPlacement, 
+  RngProvider, 
+  SelectionMode 
+} from '#chaincraft/types.js';
+import type { Inventory } from '#chaincraft/inventory/Inventory.js';
+import { pickRandom, fisherYatesShuffle } from '#chaincraft/inventory/utils.js';
 
 export class StackInventory implements Inventory {
   readonly structure = 'stack' as const;
 
   constructor(private readonly data: StackInventoryData) {}
 
-  select(mode: SelectionMode, count: number = 1): string[] {
+  select(mode: SelectionMode, count: number = 1, rng?: RngProvider): string[] {
     const { pieceIds } = this.data;
     if (typeof mode === 'object') {
       return pieceIds.includes(mode.id) ? [mode.id] : [];
@@ -20,7 +25,8 @@ export class StackInventory implements Inventory {
       case 'bottom':
         return pieceIds.slice(-count);
       case 'random':
-        return pickRandom(pieceIds, count);
+        if (!rng) throw new Error('RNG required for random selection');
+        return pickRandom(pieceIds, count, rng);
     }
   }
 
@@ -48,8 +54,8 @@ export class StackInventory implements Inventory {
     pieceIds.splice(idx, 1);
   }
 
-  shuffle(): void {
-    fisherYatesShuffle(this.data.pieceIds);
+  shuffle(rng: RngProvider): void {
+    fisherYatesShuffle(this.data.pieceIds, rng);
   }
 
   toJSON(): StackInventoryData {

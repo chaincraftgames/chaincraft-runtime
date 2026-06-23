@@ -1,4 +1,27 @@
 // ---------------------------------------------------------------------------
+// Entity reference types
+// ---------------------------------------------------------------------------
+
+/**
+ * The kind of entity a ref-typed property references.
+ * Matches the gamedef PropertyTypeSchema entity-ref kinds directly.
+ */
+export type RefType = 'player-id' | 'player-role-id' | 'gamepiece-id';
+
+/**
+ * Branded string types for entity IDs — plain strings at runtime,
+ * but TypeScript-distinguishable so resolver return types carry intent.
+ */
+declare const __playerIdBrand: unique symbol;
+export type PlayerId = string & { readonly [__playerIdBrand]: void };
+
+declare const __playerRoleIdBrand: unique symbol;
+export type PlayerRoleId = string & { readonly [__playerRoleIdBrand]: void };
+
+declare const __gamepieceIdBrand: unique symbol;
+export type GamepieceId = string & { readonly [__gamepieceIdBrand]: void };
+
+// ---------------------------------------------------------------------------
 // Inventory data (serializable state)
 // ---------------------------------------------------------------------------
 
@@ -63,6 +86,7 @@ export type Gamepiece = {
   ownerId: string;
   properties: Record<string, unknown>;
   faceUp: boolean;       // meaningful when type has hasFaceState: true
+  faceValue?: number;    // meaningful when type has faceCount (dice); range [1, faceCount]
   exhausted: boolean;    // meaningful when type has exhaustible: true
   visibleTo: string[] | 'all' | null; // null = fall back to inventory default
   inventories?: Record<string, InventoryData>; // piece-scoped inventories
@@ -192,6 +216,8 @@ export type PropertyConfig = {
   max?: number;
   enumValues?: string[];
   computed?: ComputedPropertyConfig;
+  /** When set, set-state validates that written values are valid entity IDs of this kind. */
+  refType?: RefType;
 };
 
 /**
@@ -222,13 +248,15 @@ export type GameConfig = {
   gameProperties: Record<string, PropertyConfig>;
   playerProperties: Record<string, PropertyConfig>;
   playerCount: { min: number; max: number };
+  /** Valid role IDs from the players module. Used to validate player-role-id ref writes. */
+  roles?: string[];
 };
 
 // ---------------------------------------------------------------------------
 // Effect context (execution-time, not persisted)
 // ---------------------------------------------------------------------------
 
-export type EffectContext = {
+export type EffectContext<T = Record<string, unknown>> = {
   /** The player whose turn/action triggered this effect chain (null for game-level effects). */
   actorId: string | null;
   /** The player this effect iteration is currently targeting (set by executors that resolve PlayerTarget). */
@@ -236,7 +264,7 @@ export type EffectContext = {
   /** Action inputs from player submission, keyed by input id. */
   actionInputs: Record<string, unknown>;
   /** Resolved effect definition from the spec (the YAML node). */
-  effectDef: Record<string, unknown>;
+  effectDef: T;
 };
 
 /**

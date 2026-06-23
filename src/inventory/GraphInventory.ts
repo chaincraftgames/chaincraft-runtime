@@ -1,13 +1,18 @@
-import type { GraphInventoryData, InventoryPlacement, SelectionMode } from '../types.js';
-import type { Inventory } from './Inventory.js';
-import { pickRandom } from './utils.js';
+import type { 
+  GraphInventoryData, 
+  InventoryPlacement, 
+  RngProvider, 
+  SelectionMode 
+} from '#chaincraft/types.js';
+import type { Inventory } from '#chaincraft/inventory/Inventory.js';
+import { pickRandom } from '#chaincraft/inventory/utils.js';
 
 export class GraphInventory implements Inventory {
   readonly structure = 'graph' as const;
 
   constructor(private readonly data: GraphInventoryData) {}
 
-  select(mode: SelectionMode, count: number = 1): string[] {
+  select(mode: SelectionMode, count: number = 1, rng?: RngProvider): string[] {
     if (typeof mode === 'object') {
       return Object.values(this.data.nodes).includes(mode.id) ? [mode.id] : [];
     }
@@ -20,7 +25,8 @@ export class GraphInventory implements Inventory {
         // No meaningful top/bottom on a graph — return first N occupied
         return occupied.slice(0, count);
       case 'random':
-        return pickRandom(occupied, count);
+        if (!rng) throw new Error('RNG required for random selection');
+        return pickRandom(occupied, count, rng);
     }
   }
 
@@ -50,7 +56,7 @@ export class GraphInventory implements Inventory {
     this.data.nodes[nodeId] = null;
   }
 
-  shuffle(): void {
+  shuffle(_rng: RngProvider): void {
     // No-op — graph positions are spatially meaningful
   }
 

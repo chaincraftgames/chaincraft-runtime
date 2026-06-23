@@ -2,14 +2,15 @@ import type {
   InventoryData,
   InventoryPlacement,
   InventoryStructure,
+  RngProvider,
   SelectionMode,
-} from '../types.js';
+} from '#chaincraft/types.js';
 
 export interface Inventory {
   readonly structure: InventoryStructure;
 
   /** Returns pieceIds matching the selection mode. Does not modify the inventory. */
-  select(mode: SelectionMode, count?: number): string[];
+  select(mode: SelectionMode, count?: number, rng?: RngProvider): string[];
 
   has(pieceId: string): boolean;
 
@@ -21,8 +22,8 @@ export interface Inventory {
   /** Remove a piece. Throws if not present. */
   remove(pieceId: string): void;
 
-  /** Randomize piece order (meaningful for stack/line; no-op for bag/grid/graph). */
-  shuffle(): void;
+  /** Randomize piece order using the provided RNG (meaningful for stack/line; no-op for bag/grid/graph). */
+  shuffle(rng: RngProvider): void;
 
   /** Returns the underlying serializable data (live reference, not a copy). */
   toJSON(): InventoryData;

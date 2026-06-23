@@ -1,13 +1,18 @@
-import type { LineInventoryData, InventoryPlacement, SelectionMode } from '../types.js';
-import type { Inventory } from './Inventory.js';
-import { pickRandom, fisherYatesShuffle } from './utils.js';
+import type { 
+  LineInventoryData, 
+  InventoryPlacement, 
+  RngProvider, 
+  SelectionMode 
+} from '#chaincraft/types.js';
+import type { Inventory } from '#chaincraft/inventory/Inventory.js';
+import { pickRandom, fisherYatesShuffle } from '#chaincraft/inventory/utils.js';
 
 export class LineInventory implements Inventory {
   readonly structure = 'line' as const;
 
   constructor(private readonly data: LineInventoryData) {}
 
-  select(mode: SelectionMode, count: number = 1): string[] {
+  select(mode: SelectionMode, count: number = 1, rng?: RngProvider): string[] {
     if (typeof mode === 'object') {
       return this.data.slots.includes(mode.id) ? [mode.id] : [];
     }
@@ -20,7 +25,8 @@ export class LineInventory implements Inventory {
       case 'bottom':
         return occupied.slice(-count);
       case 'random':
-        return pickRandom(occupied, count);
+        if (!rng) throw new Error('RNG required for random selection');
+        return pickRandom(occupied, count, rng);
     }
   }
 
@@ -55,9 +61,9 @@ export class LineInventory implements Inventory {
     this.data.slots[idx] = null;
   }
 
-  shuffle(): void {
+  shuffle(rng: RngProvider): void {
     const occupied = this.getOccupied();
-    fisherYatesShuffle(occupied);
+    fisherYatesShuffle(occupied, rng);
     let oi = 0;
     for (let i = 0; i < this.data.slots.length; i++) {
       if (this.data.slots[i] !== null) {

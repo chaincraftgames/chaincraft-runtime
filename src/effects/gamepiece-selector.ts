@@ -17,10 +17,12 @@
 import type { GameSession, EffectContext, SelectionMode } from '#chaincraft/types.js';
 import type { Inventory } from '#chaincraft/inventory/Inventory.js';
 import { getInventory } from '#chaincraft/inventory/index.js';
+import { resolvePlayerRef } from '#chaincraft/effects/player-target.js';
 
 export type GamepieceSelector = {
+  player?: { stateRef: string } | { param: string };
   inventory: string;
-  select: string;
+  select: string | { id: string | { param: string } };
   count?: number;
   ofType?: string;
 };
@@ -31,22 +33,44 @@ export type GamepieceSelector = {
 export function selectGamepieces(
   session: GameSession,
   ctx: EffectContext,
-  selector: Record<string, unknown>,
+  selector: GamepieceSelector,
 ): string[] {
-  const sel = selector as unknown as GamepieceSelector;
+  const sel = selector;
   const inventoryId = sel.inventory;
   const invConfig = session.config.inventories[inventoryId];
   const scope = invConfig?.scope ?? 'game';
 
-  const inventories = resolveInventories(session, ctx, inventoryId, scope);
+  // Resolve explicit player override if provided
+  const playerRef = sel.player;
+  const overridePlayerId = playerRef ? resolvePlayerRef(session, ctx, playerRef) : undefined;
+  const effectiveCtx = overridePlayerId ? { ...ctx, targetPlayerId: overridePlayerId } : ctx;
 
-  const selectMode = parseSelectMode(sel.select);
+  const inventories = resolveInventories(session, effectiveCtx, inventoryId, scope);
+
+  // Handle { id: ... } select mode
+  if (typeof sel.select === 'object' && 'id' in sel.select) {
+    const idSpec = sel.select.id;
+    const pieceId =
+      typeof idSpec === 'string'
+        ? idSpec
+        : typeof idSpec === 'object' && 'param' in idSpec
+          ? String(ctx.actionInputs[idSpec.param] ?? '')
+          : '';
+    if (!pieceId) return [];
+    // Return the piece if it's actually in one of the resolved inventories
+    for (const inv of inventories) {
+      if (inv.has(pieceId)) return [pieceId];
+    }
+    return [];
+  }
+
+  const selectMode = parseSelectMode(sel.select as string);
   const count = sel.count;
 
   const results: string[] = [];
 
   for (const inv of inventories) {
-    let selected = inv.select(selectMode, count);
+    let selected = inv.select(selectMode, count, session.rng);
 
     // Filter by gamepiece type if specified
     if (sel.ofType) {
