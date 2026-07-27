@@ -5,7 +5,11 @@ import { executeSetRandom } from '../set-random.js';
 import { executeMessage } from '../message.js';
 import { executeFlip } from '../flip.js';
 import { executeRoll } from '../roll.js';
+import { executeOrient } from '../orient.js';
+import { executeReveal, executeHide } from '../reveal-hide.js';
 import { createSeededRng } from '#chaincraft/rng/seeded.js';
+import { EffectBus } from '../index.js';
+import { AdjustablePendingEffect } from '../effect-bus.js';
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -259,7 +263,8 @@ describe('executeSetState', () => {
         value: { delta: 1 },
         target: {
           kind: 'matching',
-          condition: { '>=': [{ var: 'player.property.roundsWon' }, 2] },
+          condition: (_s: GameSession, playerId: string) =>
+            ((session.state.players[playerId]?.properties['roundsWon'] as number) ?? 0) >= 2,
         },
       },
     }));
@@ -278,7 +283,11 @@ describe('executeSetState', () => {
         value: 7,
         target: {
           kind: 'matching',
-          condition: { '>=': [{ var: 'player.inventory.forge.count' }, 1] },
+          condition: (_s: GameSession, playerId: string) => {
+            const inv = session.state.players[playerId]?.inventories['forge'];
+            const count = inv && 'pieceIds' in inv ? inv.pieceIds.length : 0;
+            return count >= 1;
+          },
         },
       },
     }));
@@ -294,7 +303,8 @@ describe('executeSetState', () => {
         value: 999,
         target: {
           kind: 'matching',
-          condition: { '>': [{ var: 'player.property.roundsWon' }, 100] },
+          condition: (_s: GameSession, playerId: string) =>
+            ((session.state.players[playerId]?.properties['roundsWon'] as number) ?? 0) > 100,
         },
       },
     }));
@@ -367,6 +377,207 @@ describe('executeSetState', () => {
       }))
     ).rejects.toThrow('not a valid player role ID');
   });
+
+  // -- Passive/Reactive effect interception --
+
+  it('skips state-write when passive cancels', async () => {
+    const session = makeSession();
+    const bus = new EffectBus();
+    session.bus = bus;
+    session.state.players['p1'].properties['roundsWon'] = 5;
+
+    // Register a passive that blocks damage (decrease)
+    bus.onBefore(
+      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'decrease' },
+      'p1',
+      (pending) => pending.cancel(),
+    );
+
+    // Try to decrease p1's roundsWon
+    await executeSetState(session, makeCtx({
+      effectDef: { path: 'player.property.roundsWon', value: { delta: -3 } },
+    }));
+
+    // Should be unchanged because passive cancelled
+    expect(session.state.players['p1'].properties['roundsWon']).toBe(5);
+  });
+
+  it('adjusts state-write value with delta before writing', async () => {
+    const session = makeSession();
+    const bus = new EffectBus();
+    session.bus = bus;
+    session.state.players['p1'].properties['roundsWon'] = 10;
+
+    // Register a passive that adds +2 to the resolved value (like a heal or buff)
+    bus.onBefore(
+      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'any' },
+      'p1',
+      (pending) => (pending as AdjustablePendingEffect).adjust({ delta: 2 }),
+    );
+
+    // Try to decrease by 5 → resolved = 10 - 5 = 5
+    await executeSetState(session, makeCtx({
+      effectDef: { path: 'player.property.roundsWon', value: { delta: -5 } },
+    }));
+
+    // Passive adjusts: 5 + 2 = 7
+    expect(session.state.players['p1'].properties['roundsWon']).toBe(7);
+  });
+
+  it('adjusts state-write value with mult before writing', async () => {
+    const session = makeSession();
+    const bus = new EffectBus();
+    session.bus = bus;
+    session.state.players['p1'].properties['roundsWon'] = 10;
+
+    // Register a passive that halves the resolved value
+    bus.onBefore(
+      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'any' },
+      'p1',
+      (pending) => (pending as AdjustablePendingEffect).adjust({ mult: 0.5 }),
+    );
+
+    // Try to decrease by 4 → resolved = 10 - 4 = 6
+    await executeSetState(session, makeCtx({
+      effectDef: { path: 'player.property.roundsWon', value: { delta: -4 } },
+    }));
+
+    // Passive adjusts: 6 * 0.5 = 3
+    expect(session.state.players['p1'].properties['roundsWon']).toBe(3);
+  });
+
+  it('accumulates multiple passive adjustments', async () => {
+    const session = makeSession();
+    const bus = new EffectBus();
+    session.bus = bus;
+    session.state.players['p1'].properties['roundsWon'] = 20;
+
+    // First passive: add 2 to the resolved value
+    bus.onBefore(
+      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'any' },
+      'p1',
+      (pending) => (pending as AdjustablePendingEffect).adjust({ delta: 2 }),
+    );
+
+    // Second passive: halve the result
+    bus.onBefore(
+      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'any' },
+      'p1',
+      (pending) => (pending as AdjustablePendingEffect).adjust({ mult: 0.5 }),
+    );
+
+    // Try to decrease by 10 → resolved = 20 - 10 = 10
+    await executeSetState(session, makeCtx({
+      effectDef: { path: 'player.property.roundsWon', value: { delta: -10 } },
+    }));
+
+    // First passive: 10 + 2 = 12
+    // Second passive: 12 * 0.5 = 6
+    expect(session.state.players['p1'].properties['roundsWon']).toBe(6);
+  });
+
+  // -- Reactive effect interception (after) --
+
+  it('triggers after hook when state-write completes', async () => {
+    const session = makeSession();
+    const bus = new EffectBus();
+    session.bus = bus;
+    session.state.players['p1'].properties['roundsWon'] = 5;
+
+    const afterCalls: Array<{ finalValue: number; direction: string }> = [];
+
+    // Register a reactive that tracks state-writes
+    bus.onAfter(
+      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'any' },
+      'p1',
+      (event) => {
+        afterCalls.push({
+          finalValue: (event as any).resolvedValue,
+          direction: (event as any).direction,
+        });
+      },
+    );
+
+    // Write to p1's roundsWon
+    await executeSetState(session, makeCtx({
+      effectDef: { path: 'player.property.roundsWon', value: { delta: 3 } },
+    }));
+
+    expect(afterCalls).toHaveLength(1);
+    expect(afterCalls[0].finalValue).toBe(8);
+    expect(afterCalls[0].direction).toBe('increase');
+  });
+
+  it('triggers after hook with adjusted value', async () => {
+    const session = makeSession();
+    const bus = new EffectBus();
+    session.bus = bus;
+    session.state.players['p1'].properties['roundsWon'] = 10;
+
+    const beforeCalls: any[] = [];
+    const afterCalls: any[] = [];
+
+    // Register a passive that adjusts
+    bus.onBefore(
+      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'any' },
+      'p1',
+      (pending) => {
+        beforeCalls.push((pending as AdjustablePendingEffect).resolvedValue);
+        (pending as AdjustablePendingEffect).adjust({ delta: 2 });
+      },
+    );
+
+    // Register a reactive that sees the adjusted value
+    bus.onAfter(
+      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'any' },
+      'p1',
+      (event) => {
+        afterCalls.push((event as any).resolvedValue);
+      },
+    );
+
+    // Try to decrease by 5 → resolved = 10 - 5 = 5 → adjusted to 7
+    await executeSetState(session, makeCtx({
+      effectDef: { path: 'player.property.roundsWon', value: { delta: -5 } },
+    }));
+
+    expect(beforeCalls).toEqual([5]); // Before sees original
+    expect(afterCalls).toEqual([7]); // After sees adjusted value
+    expect(session.state.players['p1'].properties['roundsWon']).toBe(7);
+  });
+
+  it('does not trigger after hook when passive cancels', async () => {
+    const session = makeSession();
+    const bus = new EffectBus();
+    session.bus = bus;
+    session.state.players['p1'].properties['roundsWon'] = 5;
+
+    const afterCalls: any[] = [];
+
+    // Register a passive that cancels
+    bus.onBefore(
+      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'decrease' },
+      'p1',
+      (pending) => pending.cancel(),
+    );
+
+    // Register a reactive that should NOT be called
+    bus.onAfter(
+      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'decrease' },
+      'p1',
+      () => {
+        afterCalls.push('triggered');
+      },
+    );
+
+    // Try to decrease (should be cancelled)
+    await executeSetState(session, makeCtx({
+      effectDef: { path: 'player.property.roundsWon', value: { delta: -3 } },
+    }));
+
+    expect(afterCalls).toHaveLength(0); // After not called
+    expect(session.state.players['p1'].properties['roundsWon']).toBe(5); // Unchanged
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -374,6 +585,194 @@ describe('executeSetState', () => {
 // ---------------------------------------------------------------------------
 
 describe('executeUpdate', () => {
+  it('updates a gamepiece property to a literal value', async () => {
+    const session = makeSession();
+    await executeUpdate(session, makeCtx({
+      effectDef: {
+        pieces: { inventory: 'forge', select: 'top' },
+        property: 'description',
+        value: 'A mighty sword',
+      },
+    }));
+    expect(session.state.gamepieces['weapon-1'].properties['description']).toBe('A mighty sword');
+  });
+
+  it('updates a gamepiece numeric property with delta', async () => {
+    const session = makeSession();
+    // First add a numeric property to the weapon
+    session.state.gamepieces['weapon-1'].properties['power'] = 5;
+    session.config.gamepieceTypes['weapon'].properties['power'] = { mutable: true };
+
+    await executeUpdate(session, makeCtx({
+      effectDef: {
+        pieces: { inventory: 'forge', select: 'top' },
+        property: 'power',
+        value: { delta: 3 },
+      },
+    }));
+
+    expect(session.state.gamepieces['weapon-1'].properties['power']).toBe(8);
+  });
+
+  // -- Passive/Reactive effect interception --
+
+  it('triggers before hook when update on numeric property', async () => {
+    const session = makeSession();
+    const bus = new EffectBus();
+    session.bus = bus;
+    session.state.gamepieces['weapon-1'].properties['power'] = 5;
+    session.config.gamepieceTypes['weapon'].properties['power'] = { mutable: true };
+
+    const beforeCalls: any[] = [];
+
+    // Register a reactive that listens to updates
+    bus.onBefore(
+      { kind: 'state-write', scope: 'target', path: 'gamepiece.property.power', direction: 'any' },
+      'weapon-1',
+      (pending) => {
+        beforeCalls.push((pending as AdjustablePendingEffect).resolvedValue);
+      },
+    );
+
+    await executeUpdate(session, makeCtx({
+      actorId: 'p1',
+      effectDef: {
+        pieces: { inventory: 'forge', select: 'top' },
+        property: 'power',
+        value: { delta: 2 },
+      },
+    }));
+
+    expect(beforeCalls).toEqual([7]); // 5 + 2 = 7
+  });
+
+  it('cancels update when passive blocks', async () => {
+    const session = makeSession();
+    const bus = new EffectBus();
+    session.bus = bus;
+    session.state.gamepieces['weapon-1'].properties['power'] = 5;
+    session.config.gamepieceTypes['weapon'].properties['power'] = { mutable: true };
+
+    // Register a passive that blocks decreases
+    bus.onBefore(
+      { kind: 'state-write', scope: 'target', path: 'gamepiece.property.power', direction: 'decrease' },
+      'weapon-1',
+      (pending) => pending.cancel(),
+    );
+
+    await executeUpdate(session, makeCtx({
+      actorId: 'p1',
+      effectDef: {
+        pieces: { inventory: 'forge', select: 'top' },
+        property: 'power',
+        value: { delta: -2 },
+      },
+    }));
+
+    expect(session.state.gamepieces['weapon-1'].properties['power']).toBe(5); // Unchanged
+  });
+
+  it('adjusts update value with delta', async () => {
+    const session = makeSession();
+    const bus = new EffectBus();
+    session.bus = bus;
+    session.state.gamepieces['weapon-1'].properties['power'] = 10;
+    session.config.gamepieceTypes['weapon'].properties['power'] = { mutable: true };
+
+    // Register a passive that boosts all damage
+    bus.onBefore(
+      { kind: 'state-write', scope: 'target', path: 'gamepiece.property.power', direction: 'increase' },
+      'weapon-1',
+      (pending) => (pending as AdjustablePendingEffect).adjust({ delta: 2 }),
+    );
+
+    await executeUpdate(session, makeCtx({
+      actorId: 'p1',
+      effectDef: {
+        pieces: { inventory: 'forge', select: 'top' },
+        property: 'power',
+        value: { delta: 5 },
+      },
+    }));
+
+    // 10 + 5 = 15, then passive adds 2 → 17
+    expect(session.state.gamepieces['weapon-1'].properties['power']).toBe(17);
+  });
+
+  it('triggers after hook when update completes', async () => {
+    const session = makeSession();
+    const bus = new EffectBus();
+    session.bus = bus;
+    session.state.gamepieces['weapon-1'].properties['power'] = 10;
+    session.config.gamepieceTypes['weapon'].properties['power'] = { mutable: true };
+
+    const afterCalls: any[] = [];
+
+    // Register a reactive that triggers after updates
+    bus.onAfter(
+      { kind: 'state-write', scope: 'target', path: 'gamepiece.property.power', direction: 'any' },
+      'weapon-1',
+      (event) => {
+        afterCalls.push((event as any).resolvedValue);
+      },
+    );
+
+    await executeUpdate(session, makeCtx({
+      actorId: 'p1',
+      effectDef: {
+        pieces: { inventory: 'forge', select: 'top' },
+        property: 'power',
+        value: { delta: 3 },
+      },
+    }));
+
+    expect(afterCalls).toEqual([13]); // 10 + 3 = 13
+  });
+
+  it('after hook sees adjusted value from passive', async () => {
+    const session = makeSession();
+    const bus = new EffectBus();
+    session.bus = bus;
+    session.state.gamepieces['weapon-1'].properties['power'] = 10;
+    session.config.gamepieceTypes['weapon'].properties['power'] = { mutable: true };
+
+    const beforeCalls: any[] = [];
+    const afterCalls: any[] = [];
+
+    // Register a passive that halves
+    bus.onBefore(
+      { kind: 'state-write', scope: 'target', path: 'gamepiece.property.power', direction: 'any' },
+      'weapon-1',
+      (pending) => {
+        beforeCalls.push((pending as AdjustablePendingEffect).resolvedValue);
+        (pending as AdjustablePendingEffect).adjust({ mult: 0.5 });
+      },
+    );
+
+    // Register a reactive that sees the adjusted value
+    bus.onAfter(
+      { kind: 'state-write', scope: 'target', path: 'gamepiece.property.power', direction: 'any' },
+      'weapon-1',
+      (event) => {
+        afterCalls.push((event as any).resolvedValue);
+      },
+    );
+
+    await executeUpdate(session, makeCtx({
+      actorId: 'p1',
+      effectDef: {
+        pieces: { inventory: 'forge', select: 'top' },
+        property: 'power',
+        value: { delta: 4 },
+      },
+    }));
+
+    expect(beforeCalls).toEqual([14]); // 10 + 4 = 14
+    expect(afterCalls).toEqual([7]); // 14 * 0.5 = 7
+    expect(session.state.gamepieces['weapon-1'].properties['power']).toBe(7);
+  });
+
+  // -- Original executeUpdate tests --
   it('sets a piece property to a literal value', async () => {
     const session = makeSession();
     await executeUpdate(session, makeCtx({
@@ -869,5 +1268,141 @@ describe('executeRoll', () => {
       effectDef: { pieces: { inventory: 'forge', select: 'all' } },
     }));
     expect(session.state.gamepieces['weapon-1'].faceValue).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// orient
+// ---------------------------------------------------------------------------
+
+function makeOrientSession(): GameSession {
+  const session = makeSession();
+  session.config.gamepieceTypes['tile'] = { category: 'tile', orientationCount: 4, properties: {} };
+  session.config.inventories['board'] = {
+    structure: 'none', scope: 'game', visibility: 'always', accepts: ['tile'],
+  };
+  session.state.gameInventories['board'] = { structure: 'none', pieceIds: ['tile-1'] };
+  session.state.gamepieces['tile-1'] = {
+    typeId: 'tile', ownerId: 'game', properties: {}, faceUp: true, exhausted: false, visibleTo: null,
+  };
+  return session;
+}
+
+const tileSel = { pieces: { inventory: 'board', select: 'all' } };
+
+describe('executeOrient', () => {
+  it('sets piece to a specific orientation index', async () => {
+    const session = makeOrientSession();
+    await executeOrient(session, makeCtx({ effectDef: { ...tileSel, to: 2 } }));
+    expect(session.state.gamepieces['tile-1'].orientationIndex).toBe(2);
+  });
+
+  it('rotate-cw increments orientation, wrapping at orientationCount', async () => {
+    const session = makeOrientSession();
+    session.state.gamepieces['tile-1'].orientationIndex = 3;
+    await executeOrient(session, makeCtx({ effectDef: { ...tileSel, to: 'rotate-cw' } }));
+    expect(session.state.gamepieces['tile-1'].orientationIndex).toBe(0); // 3+1 mod 4
+  });
+
+  it('rotate-ccw decrements orientation, wrapping around 0', async () => {
+    const session = makeOrientSession();
+    session.state.gamepieces['tile-1'].orientationIndex = 0;
+    await executeOrient(session, makeCtx({ effectDef: { ...tileSel, to: 'rotate-ccw' } }));
+    expect(session.state.gamepieces['tile-1'].orientationIndex).toBe(3); // 0-1+4 mod 4
+  });
+
+  it('rotate-cw on undefined orientationIndex treats current as 0', async () => {
+    const session = makeOrientSession();
+    // orientationIndex is undefined by default
+    await executeOrient(session, makeCtx({ effectDef: { ...tileSel, to: 'rotate-cw' } }));
+    expect(session.state.gamepieces['tile-1'].orientationIndex).toBe(1);
+  });
+
+  it('direct set wraps if index >= orientationCount', async () => {
+    const session = makeOrientSession();
+    await executeOrient(session, makeCtx({ effectDef: { ...tileSel, to: 7 } })); // 7 % 4 = 3
+    expect(session.state.gamepieces['tile-1'].orientationIndex).toBe(3);
+  });
+
+  it('skips pieces whose type has no orientationCount', async () => {
+    const session = makeSession();
+    await executeOrient(session, makeCtx({
+      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'rotate-cw' },
+    }));
+    expect(session.state.gamepieces['weapon-1'].orientationIndex).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reveal / hide
+// ---------------------------------------------------------------------------
+
+describe('executeReveal', () => {
+  it('sets visibleTo to "all" when to is "all"', async () => {
+    const session = makeSession();
+    session.state.gamepieces['weapon-1'].visibleTo = null;
+    await executeReveal(session, makeCtx({
+      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'all' },
+    }));
+    expect(session.state.gamepieces['weapon-1'].visibleTo).toBe('all');
+  });
+
+  it('sets visibleTo to [actorId] when to is "actor"', async () => {
+    const session = makeSession();
+    session.state.gamepieces['weapon-1'].visibleTo = null;
+    await executeReveal(session, makeCtx({
+      actorId: 'p1',
+      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'actor' },
+    }));
+    expect(session.state.gamepieces['weapon-1'].visibleTo).toEqual(['p1']);
+  });
+
+  it('sets visibleTo to all players except actor when to is "opponents"', async () => {
+    const session = makeSession();
+    session.state.gamepieces['weapon-1'].visibleTo = null;
+    await executeReveal(session, makeCtx({
+      actorId: 'p1',
+      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'opponents' },
+    }));
+    expect(session.state.gamepieces['weapon-1'].visibleTo).toEqual(['p2']);
+  });
+
+  it('sets visibleTo to a specific player ID', async () => {
+    const session = makeSession();
+    session.state.gamepieces['weapon-1'].visibleTo = null;
+    await executeReveal(session, makeCtx({
+      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'p2' },
+    }));
+    expect(session.state.gamepieces['weapon-1'].visibleTo).toEqual(['p2']);
+  });
+
+  it('sets visibleTo to players matching a role when to is "role:<id>"', async () => {
+    const session = makeSession();
+    session.state.players['p2'].properties['role'] = 'dealer';
+    session.state.gamepieces['weapon-1'].visibleTo = null;
+    await executeReveal(session, makeCtx({
+      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'role:dealer' },
+    }));
+    expect(session.state.gamepieces['weapon-1'].visibleTo).toEqual(['p2']);
+  });
+});
+
+describe('executeHide', () => {
+  it('sets visibleTo to null, reverting to inventory default', async () => {
+    const session = makeSession();
+    session.state.gamepieces['weapon-1'].visibleTo = 'all';
+    await executeHide(session, makeCtx({
+      effectDef: { pieces: { inventory: 'forge', select: 'all' } },
+    }));
+    expect(session.state.gamepieces['weapon-1'].visibleTo).toBeNull();
+  });
+
+  it('clears a player-specific reveal', async () => {
+    const session = makeSession();
+    session.state.gamepieces['weapon-1'].visibleTo = ['p1'];
+    await executeHide(session, makeCtx({
+      effectDef: { pieces: { inventory: 'forge', select: 'all' } },
+    }));
+    expect(session.state.gamepieces['weapon-1'].visibleTo).toBeNull();
   });
 });

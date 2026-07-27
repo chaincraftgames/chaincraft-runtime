@@ -1,3 +1,5 @@
+import { Logger } from '#chaincraft/logger.js';
+import { EffectBus } from '#chaincraft/effects/effect-bus.js'
 // ---------------------------------------------------------------------------
 // Entity reference types
 // ---------------------------------------------------------------------------
@@ -87,6 +89,7 @@ export type Gamepiece = {
   properties: Record<string, unknown>;
   faceUp: boolean;       // meaningful when type has hasFaceState: true
   faceValue?: number;    // meaningful when type has faceCount (dice); range [1, faceCount]
+  orientationIndex?: number; // meaningful when type has orientationCount; range [0, orientationCount)
   exhausted: boolean;    // meaningful when type has exhaustible: true
   visibleTo: string[] | 'all' | null; // null = fall back to inventory default
   inventories?: Record<string, InventoryData>; // piece-scoped inventories
@@ -167,6 +170,12 @@ export interface RngProvider {
 // this container, projecting them through the generated interfaces.
 // ---------------------------------------------------------------------------
 
+/**
+ * Predicate function compiled from an infix condition expression.
+ * Replaces JsonLogic for all flow conditions and player/piece filters.
+ */
+export type Predicate = (session: GameSession, actorId?: string) => boolean;
+
 export type GameSession = {
   readonly gameId: string;
   readonly specId: string;
@@ -175,6 +184,12 @@ export type GameSession = {
   readonly players: string[];
   readonly outbox: Message[];
   readonly rng: RngProvider;
+  /** 
+   * Effect bus for named-effect intercept (passives/reactives). 
+   * Writable for testing only; production code should use the bus on the GameSession.
+   */
+  bus?: EffectBus;
+  readonly logger?: Logger;
   /** Internal cache — do not access directly. Use getInventory(). */
   readonly _inventoryCache: Map<string, import('./inventory/Inventory.js').Inventory>;
 };
@@ -268,13 +283,46 @@ export type EffectContext<T = Record<string, unknown>> = {
 };
 
 /**
- * An effect executor is an async function that mutates the session.
- * One per effect `kind`. Registered in the CompiledGameModule's effect map.
+ * A simple (non-suspending) effect registration. Registered in
+ * CompiledGameModule.effects for all deterministic effect kinds.
  */
-export type EffectExecutor = (
-  session: GameSession,
-  ctx: EffectContext,
-) => Promise<void>;
+export type EffectExecutor = {
+  readonly kind: 'effect-executor';
+  execute: (session: GameSession, ctx: EffectContext) => Promise<void>;
+};
+
+/**
+ * Outbound payload for the first phase of a suspending effect.
+ * The engine assigns the requestId; buildRequest provides only
+ * the kind-specific content. The result is delivered back via
+ * group.collected[requestId] before consume() is called.
+ */
+export type SuspensionRequest =
+  | { kind: 'llm' }
+  | { kind: 'external-data'; source: string; query: Record<string, unknown> };
+
+/**
+ * A two-phase effect registration for effects that require a system
+ * round-trip (llm-effect, external-data).
+ *
+ * Phase 1 — buildRequest: assembles and emits the outbound request from
+ * current state and inputs. The engine suspends and assigns a requestId.
+ *
+ * Phase 2 — consume: called once the system response arrives, with the
+ * result delivered via EffectContext.actionInputs[requestId]. Applies
+ * the result to session state deterministically.
+ */
+export type SuspendingEffectExecutor = {
+  readonly kind: 'suspending-effect-executor';
+  buildRequest(session: GameSession, ctx: EffectContext): SuspensionRequest;
+  consume(session: GameSession, ctx: EffectContext, result: unknown): Promise<void>;
+};
+
+/**
+ * Discriminated union of all effect registrations, keyed by effect kind
+ * in CompiledGameModule.effects. Discriminant is the `kind` field.
+ */
+export type EffectRegistration = EffectExecutor | SuspendingEffectExecutor;
 
 // ---------------------------------------------------------------------------
 // Flow tree (mirrors gamedef flow module — compiled from YAML)
@@ -282,21 +330,65 @@ export type EffectExecutor = (
 
 export type FlowNode =
   | GameFlowNode
-  | SimultaneousFlowNode
+  | TurnFlowNode
   | LoopFlowNode;
 
 export type GameFlowNode = {
   kind: 'game';
+  id: string;
   hooks?: FlowHooks;
   children: FlowNode[];
 };
 
-export type SimultaneousFlowNode = {
-  kind: 'simultaneous';
+/**
+ * How players are ordered and scheduled within a turn node.
+ *
+ * - round-robin: players act one at a time in seat/ranked/start order.
+ *   `reversedPath` is a game state boolean path (default: 'game.property.turnOrderReversed')
+ *   that flips direction when true — update it with the built-in `reverseTurnOrder` effect.
+ * - simultaneous: all eligible players act at once (fork-join); outcomes hidden until join
+ *   when `revealAtJoin` is true on the parent TurnFlowNode.
+ * - single: one specific player acts, resolved from a state path or role.
+ * - custom: escape hatch for game-specific resolver logic registered at startup.
+ */
+export type TurnOrdering =
+  | {
+      kind: 'round-robin';
+      /** State path to the player ID who acts first. Defaults to session.players[0]. */
+      startPath?: string;
+      /**
+       * State path to a boolean that reverses iteration direction when true.
+       * Defaults to 'game.property.turnOrderReversed'.
+       * Toggle with the built-in `reverseTurnOrder` effect.
+       */
+      reversedPath?: string;
+      /** Restrict to players holding one of these role IDs. */
+      roleIds?: string[];
+      /** Sort eligible players by a property or inventory value before applying direction. */
+      sort?: {
+        by: { playerProperty: string } | { playerInventory: string };
+        order: 'ascending' | 'descending';
+      };
+    }
+  | { kind: 'simultaneous'; roleIds?: string[] }
+  | {
+      kind: 'single';
+      actor: { kind: 'state-ref'; path: string } | { kind: 'roles'; roleIds: string[] };
+    }
+  | { kind: 'custom'; resolverId: string };
+
+export type TurnFlowNode = {
+  kind: 'turn';
   id: string;
   label: string;
-  actor: 'all-players';
+  ordering: TurnOrdering;
   grammar: Grammar;
+  /**
+   * When true, effect outcomes are withheld from all players until every eligible
+   * actor has completed their grammar (simultaneous reveal).
+   * Only meaningful when ordering.kind is 'simultaneous'.
+   */
+  revealAtJoin?: boolean;
   hooks?: FlowHooks;
 };
 
@@ -304,8 +396,23 @@ export type LoopFlowNode = {
   kind: 'loop';
   id: string;
   label: string;
-  endCondition: Record<string, unknown>; // JsonLogic expression
-  writeIterationTo?: string;             // state dot-path
+  /**
+   * Exit when this predicate returns true, checked after each full iteration
+   * (all children processed).
+   */
+  endCondition?: Predicate;
+  /**
+   * Run exactly this many iterations then exit. Mutually exclusive with
+   * endCondition; use count: 1 for a one-shot sequence of phases.
+   */
+  count?: number;
+  /**
+   * When true and endCondition fires mid-iteration, allow the current
+   * iteration to complete before exiting.
+   */
+  finalRound?: boolean;
+  /** Write the current iteration count to this game state path after each onEnter. */
+  writeIterationTo?: string;
   hooks?: FlowHooks;
   children: FlowNode[];
 };
@@ -318,32 +425,121 @@ export type FlowHooks = {
 export type EffectRef = { ref: string } | Record<string, unknown>; // named ref or inline effect
 
 // ---------------------------------------------------------------------------
-// Grammar (player action patterns within a flow node)
+// Grammar (player action patterns within a turn or simultaneous node)
 // ---------------------------------------------------------------------------
 
 export type Grammar =
   | ActionGrammar
+  | ChoiceGrammar
+  | SequenceGrammar
   | RepeatGrammar;
 
+/** Player must take exactly this one action (no choice). */
 export type ActionGrammar = {
   kind: 'action';
   ref: string; // action id
 };
 
+/**
+ * Player picks one action from the listed set.
+ * If passable is true, passing (taking no action) is also legal.
+ */
+export type ChoiceGrammar = {
+  kind: 'choice';
+  actions: string[]; // available action IDs
+  passable?: boolean;
+};
+
+/** Player executes these actions in order (each is mandatory, no choice). */
+export type SequenceGrammar = {
+  kind: 'sequence';
+  actions: string[];
+};
+
+/**
+ * Player executes the body grammar repeatedly.
+ * - Fixed count: repeat exactly N times.
+ * - Range: repeat between min and max times. Pass becomes legal once repeatCount
+ *   >= min; the body does not need to be passable — passing is a property of
+ *   the count boundary, not the body.
+ * - 'until-pass': repeat until the player elects to pass. Pass is always legal;
+ *   again the body does not need to be passable.
+ *   In a simultaneous node, the phase exits when ALL actors have passed.
+ */
 export type RepeatGrammar = {
   kind: 'repeat';
-  count: number;
+  /** Inner grammar to repeat each iteration. */
   body: Grammar;
+  /** Repeat exactly N times, up to a range, or until player passes. */
+  count: number | { min?: number; max?: number } | 'until-pass';
 };
 
 // ---------------------------------------------------------------------------
 // Action definitions (compiled from spec actions module)
 // ---------------------------------------------------------------------------
 
+// --- Action input type variants (discriminated on `kind`) ---
+
+export type NumberInputType = {
+  readonly kind: 'number';
+  readonly min?: number;
+  readonly max?: number;
+  /** If true, only whole numbers accepted. Defaults to true. */
+  readonly integer?: boolean;
+};
+
+export type StringInputType = { readonly kind: 'string' };
+
+export type BooleanInputType = { readonly kind: 'boolean' };
+
+export type EnumInputType = {
+  readonly kind: 'enum';
+  readonly values: string[];
+};
+
+export type EffectOriginatorInputType = { readonly kind: 'effect-originator' };
+
+export type TriggerInputType = {
+  readonly kind: 'trigger-input';
+  readonly inputId: string;
+};
+
+export type GamepieceSelectInputType = {
+  readonly kind: 'gamepiece-select';
+  readonly inventory: string;
+  readonly ofType?: string;
+  readonly count?: number;
+  readonly fromPlayer?: 'self' | { param: string };
+  readonly filter?: (session: GameSession, pieceId: string) => boolean;
+};
+
+export type PlayerSelectInputType = {
+  readonly kind: 'player-select';
+  readonly excludeSelf?: boolean;
+  readonly filter?: (session: GameSession, playerId: string) => boolean;
+};
+
+export type InventoryPositionInputType = {
+  readonly kind: 'inventory-position';
+  readonly inventory: string;
+  readonly fromPlayer?: 'self' | { param: string };
+};
+
+export type ActionInputType =
+  | NumberInputType
+  | StringInputType
+  | BooleanInputType
+  | EnumInputType
+  | EffectOriginatorInputType
+  | TriggerInputType
+  | GamepieceSelectInputType
+  | PlayerSelectInputType
+  | InventoryPositionInputType;
+
 export type ActionInputDef = {
   readonly id: string;
-  readonly label: string;
-  readonly type: { kind: string; values?: string[] };
+  readonly label?: string;
+  readonly type: ActionInputType;
   readonly validation?: string;
 };
 
@@ -362,8 +558,6 @@ export type ActionDef = {
 // Mechanic types are imported from their own modules (e.g. mechanics/trump).
 // ---------------------------------------------------------------------------
 
-import type { TrumpMechanic } from '#chaincraft/mechanics/trump/types.js';
-
 export type CompiledGameModule = {
   readonly specId: string;
   readonly metadata: { name: string; playerCount: { min: number; max: number } };
@@ -374,14 +568,11 @@ export type CompiledGameModule = {
   /** The flow tree to execute. */
   readonly flow: FlowNode;
 
-  /** Effect executors — built-in + custom effects merged, keyed by effect id. */
-  readonly effects: Record<string, EffectExecutor>;
+  /** Effect executors — built-in + custom effects merged, keyed by effect kind. */
+  readonly effects: Record<string, EffectRegistration>;
 
   /** Named effect definitions from the spec (for ref resolution), keyed by id. */
   readonly effectDefs: Record<string, Record<string, unknown>>;
-
-  /** Mechanic instances (each mechanic module defines its own type). */
-  readonly trumpMechanics: TrumpMechanic[];
 
   /** Action definitions, keyed by action id. */
   readonly actions: Record<string, ActionDef>;

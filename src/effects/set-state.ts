@@ -11,10 +11,11 @@
 // ---------------------------------------------------------------------------
 
 import type { GameSession, EffectContext, PropertyConfig } from '#chaincraft/types.js';
-import { resolveValue } from './resolve-value.js';
-import type { PropertyValue } from './resolve-value.js';
-import { resolvePlayerTarget } from './player-target.js';
-import type { PlayerTarget } from './player-target.js';
+import { resolveValue } from '#chaincraft/effects/resolve-value.js';
+import type { PropertyValue } from '#chaincraft/effects/resolve-value.js';
+import { resolvePlayerTarget } from '#chaincraft/effects/player-target.js';
+import type { PlayerTarget } from '#chaincraft/effects/player-target.js';
+import { StateWriteEvent } from './effect-bus.js';
 
 type SetStateEffectDef = { path: string; value: PropertyValue; target?: PlayerTarget };
 
@@ -66,7 +67,7 @@ export async function executeSetState(
     const key = segments[2];
     const config = session.config.gameProperties[key];
     const current = session.state.gameProperties[key];
-    const resolved = resolveValue(pv, current, session, ctx, config);
+    let resolved = resolveValue(pv, current, session, ctx, config);
     validateRefValue(resolved, config, session, path);
     session.state.gameProperties[key] = resolved;
   } else if (segments[0] === 'player' && segments[1] === 'property') {
@@ -80,11 +81,57 @@ export async function executeSetState(
       }
       const config = session.config.playerProperties[key];
       const current = player.properties[key];
-      const resolved = resolveValue(pv, current, session, { ...ctx, targetPlayerId: playerId }, config);
+      let resolved = resolveValue(
+        pv, 
+        current, 
+        session, 
+        { ...ctx, targetPlayerId: playerId }, 
+        config
+      );
       validateRefValue(resolved, config, session, path);
-      player.properties[key] = resolved;
+      if (
+        ctx.actorId && 
+        typeof current === 'number' && typeof resolved == 'number'
+      ) {
+        // Set state is adjustable if directed at a player, so create a pending 
+        // effect and emit before.
+        let finalValue: number = resolved;
+        const stateWriteEvent = {
+          kind: 'state-write' as const,
+          direction: resolved >= current ? 'increase' : 'decrease',
+          path,
+          resolvedValue: resolved,
+          targetId: playerId,
+          actorId: ctx.actorId,
+        } satisfies StateWriteEvent;
+        const pending = session.bus?.emitBeforeStateWrite(stateWriteEvent);
+        if (pending?.cancelled) {
+          session.logger?.info(
+            { path, targetId: playerId }, 
+            'state-write cancelled by passive'
+          );  
+          // If the pending effect was cancelled, skip the write.
+          continue;
+        }
+        if (pending?.adjustedValue !== undefined && pending.adjustedValue !== pending.resolvedValue) {
+          finalValue = pending.adjustedValue as number;
+          session.logger?.info(
+            { path, targetId: playerId, resolvedValue: finalValue }, 
+            'state-write adjusted by passive'
+          );
+        }
+        player.properties[key] = finalValue;
+        session.bus?.emitAfterStateWrite({
+          ...stateWriteEvent,
+          resolvedValue: finalValue
+        } satisfies StateWriteEvent);
+      } else {
+        player.properties[key] = resolved;
+      }
     }
   } else {
     throw new Error(`Invalid set-state path: "${path}". Expected game.property.<id> or player.property.<id>`);
   }
 }
+
+         
