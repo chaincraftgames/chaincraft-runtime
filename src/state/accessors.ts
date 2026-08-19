@@ -309,7 +309,8 @@ export function setPieceState<
   const typeConfig = session.config.gamepieceTypes[piece.typeId];
   const propConfig = typeConfig?.properties[key];
   if (propConfig) {
-    validateProperty(propConfig, `piece.${pieceId}.${key}`, value);
+    // GamepiecePropertyConfig has no min/max/enumValues — validateProperty only checks those when present
+    validateProperty({ mutable: propConfig.mutable }, `piece.${pieceId}.${key}`, value);
   }
   piece.properties[key] = value;
 }

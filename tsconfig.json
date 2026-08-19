@@ -28,6 +28,7 @@
   "exclude": [
     "node_modules",
     "src-old",
-    "modules"
+    "modules",
+    "src/effects/passive-reactive-system.ts"
   ]
 }

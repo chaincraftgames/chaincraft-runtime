@@ -7,21 +7,24 @@
 // ---------------------------------------------------------------------------
 
 import type { GameSession, EffectContext } from '#chaincraft/types.js';
-import { resolveValue } from './resolve-value.js';
-import type { PropertyValue } from './resolve-value.js';
+import { resolveValue, resolvePieceRef } from './resolve-value.js';
+import type { PropertyValue, PieceRef } from './resolve-value.js';
 import { selectGamepieces } from './gamepiece-selector.js';
 import type { GamepieceSelector } from './gamepiece-selector.js';
 import { StateWriteEvent } from './index.js';
 
-type UpdateEffectDef = { pieces: GamepieceSelector; property: string; value: PropertyValue };
+type UpdateEffectDef = { pieces: GamepieceSelector; property: string; value: PropertyValue; source?: PieceRef };
 
 export async function executeUpdate(
   session: GameSession,
   ctx: EffectContext<UpdateEffectDef>,
 ): Promise<void> {
-  const { pieces: selector, property, value: pv } = ctx.effectDef;
+  const { pieces: selector, property, value: pv, source } = ctx.effectDef;
 
   const pieceIds = selectGamepieces(session, ctx, selector);
+
+  // Resolve source piece if specified (e.g. the attacking creature)
+  const sourcePieceId = source ? resolvePieceRef(ctx, source) : ctx.sourcePieceId;
 
   for (const pieceId of pieceIds) {
     const piece = session.state.gamepieces[pieceId];
@@ -30,7 +33,9 @@ export async function executeUpdate(
     const typeConfig = session.config.gamepieceTypes[piece.typeId];
     const propConfig = typeConfig?.properties[property];
     const current = piece.properties[property];
-    let resolved = resolveValue(pv, current, session, ctx, propConfig);
+    // Thread source and target piece IDs into context for value resolution
+    const valueCtx = { ...ctx, sourcePieceId, targetPieceId: pieceId };
+    let resolved = resolveValue(pv, current, session, valueCtx, propConfig);
     
     if (
       ctx.actorId && 

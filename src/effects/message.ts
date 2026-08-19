@@ -42,11 +42,49 @@ function renderTemplate(template: string, session: GameSession, ctx: EffectConte
   });
 }
 
+/**
+ * Resolve a `to` value to the concrete list of player IDs who should receive
+ * the message. Called at effect execution time so `ctx.actorId` is available.
+ *
+ * Symbolic values:
+ *   'all'         → every player in the session
+ *   'actor'       → [actorId], falls back to all if no actor
+ *   'opponents'   → all players except the actor, falls back to all if no actor
+ *   'role:<id>'   → players whose `role` property matches `<id>`
+ *   <playerId>    → [playerId] if they exist in the session, otherwise all (safe fallback)
+ */
+function resolveRecipients(
+  to: string,
+  session: GameSession,
+  ctx: EffectContext,
+): string[] {
+  const allPlayers = Object.keys(session.state.players);
+  switch (to) {
+    case 'all':
+      return allPlayers;
+    case 'actor':
+      return ctx.actorId ? [ctx.actorId] : allPlayers;
+    case 'opponents':
+      return ctx.actorId
+        ? allPlayers.filter((p) => p !== ctx.actorId)
+        : allPlayers;
+    default:
+      if (to.startsWith('role:')) {
+        const roleId = to.slice(5);
+        const matched = allPlayers.filter((p) => session.state.players[p]?.roles.includes(roleId));
+        return matched.length > 0 ? matched : allPlayers;
+      }
+      // Specific player ID — use it directly if they're in the session
+      return session.state.players[to] ? [to] : allPlayers;
+  }
+}
+
 export async function executeMessage(
   session: GameSession,
   ctx: EffectContext<MessageEffectDef>,
 ): Promise<void> {
   const { template, to = 'all' } = ctx.effectDef;
   const content = renderTemplate(template, session, ctx);
-  session.outbox.push({ to, content });
+  const recipients = resolveRecipients(to, session, ctx);
+  session.outbox.push({ to, recipients, content });
 }

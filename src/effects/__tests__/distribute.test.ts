@@ -1,6 +1,7 @@
 import type { GameSession, GameState, GameConfig, EffectContext } from '#chaincraft/types.js';
 import { executeDistribute } from '../distribute.js';
 import { createSeededRng } from '#chaincraft/rng/seeded.js';
+import { GameEventEmitter } from '#chaincraft/events/emitter.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,9 +49,9 @@ function makeState(): GameState {
       supply: { structure: 'none',  pieceIds: [...tokenIds] },
     },
     players: {
-      p1: { properties: { role: 'mafia' }, inventories: { hand: { structure: 'none', pieceIds: [] }, chest: { structure: 'none', pieceIds: [] } } },
-      p2: { properties: { role: 'citizen' }, inventories: { hand: { structure: 'none', pieceIds: [] }, chest: { structure: 'none', pieceIds: [] } } },
-      p3: { properties: { role: 'citizen' }, inventories: { hand: { structure: 'none', pieceIds: [] }, chest: { structure: 'none', pieceIds: [] } } },
+      p1: { roles: ['mafia'],   properties: { role: 'mafia' },   inventories: { hand: { structure: 'none', pieceIds: [] }, chest: { structure: 'none', pieceIds: [] } } },
+      p2: { roles: ['citizen'], properties: { role: 'citizen' }, inventories: { hand: { structure: 'none', pieceIds: [] }, chest: { structure: 'none', pieceIds: [] } } },
+      p3: { roles: ['citizen'], properties: { role: 'citizen' }, inventories: { hand: { structure: 'none', pieceIds: [] }, chest: { structure: 'none', pieceIds: [] } } },
     },
     gamepieces: { ...cards, ...tokens },
   };
@@ -65,6 +66,7 @@ function makeSession(): GameSession {
     players: ['p1', 'p2', 'p3'],
     outbox: [],
     rng: createSeededRng(42),
+    events: new GameEventEmitter(),
     _inventoryCache: new Map(),
   };
 }

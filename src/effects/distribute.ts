@@ -50,14 +50,10 @@ function resolveTargetPlayers(
 ): string[] {
   let players = [...session.players];
 
-  // Role filter: a player qualifies if any of their property values matches a
-  // listed role ID. Relies on the convention that role assignments are stored
-  // as player properties via the set-state effect.
   if (to.roles && to.roles.length > 0) {
-    players = players.filter((playerId) => {
-      const props = session.state.players[playerId]?.properties ?? {};
-      return to.roles!.some((role) => Object.values(props).includes(role));
-    });
+    players = players.filter((playerId) =>
+      to.roles!.some((role) => session.state.players[playerId]?.roles.includes(role)),
+    );
   }
 
   return players;

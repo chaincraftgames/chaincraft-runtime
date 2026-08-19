@@ -146,11 +146,12 @@ export async function drive(
 // ---------------------------------------------------------------------------
 
 function invPieceIds(state: GameState, key: string, scope: 'game' | 'player', playerId?: string): string[] {
-  const inv = scope === 'game'
-    ? (state as Record<string, unknown> & { gameInventories?: Record<string, unknown> }).gameInventories?.[key]
-    : playerId
-      ? (state as Record<string, unknown> & { players?: Record<string, Record<string, unknown>> }).players?.[playerId]?.inventories?.[key]
-      : undefined;
+  let inv: unknown;
+  if (scope === 'game') {
+    inv = state.gameInventories[key];
+  } else if (playerId) {
+    inv = state.players[playerId]?.inventories?.[key];
+  }
   return inv && typeof inv === 'object' && 'pieceIds' in inv ? (inv as { pieceIds: string[] }).pieceIds : [];
 }
 

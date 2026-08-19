@@ -25,6 +25,26 @@ export type PropertyValue =
   | { var: string };
 
 /**
+ * A reference to a single gamepiece, resolved from action inputs or a literal ID.
+ * Used by the `source` field on update/set-state effects.
+ */
+export type PieceRef = { param: string } | { id: string };
+
+/**
+ * Resolve a PieceRef to a concrete piece ID.
+ */
+export function resolvePieceRef(ctx: EffectContext, ref: PieceRef): string | undefined {
+  if ('param' in ref) {
+    const val = ctx.actionInputs[ref.param];
+    return typeof val === 'string' ? val : undefined;
+  }
+  if ('id' in ref) {
+    return ref.id;
+  }
+  return undefined;
+}
+
+/**
  * Resolve a PropertyValue to a concrete value.
  *
  * @param pv       The property-value descriptor from the effect def
@@ -114,9 +134,25 @@ export function resolveValue(
  *   player.property.<id>         — target player's property (stored or computed)
  *   game.inventory.<id>.count    — game-level inventory piece count
  *   player.inventory.<id>.count  — target player's inventory piece count
+ *   source.property.<id>         — property on the source piece (from ctx.sourcePieceId)
+ *   target.property.<id>         — property on the target piece (from ctx.targetPieceId)
  */
 export function resolveStateVar(session: GameSession, ctx: EffectContext, path: string): unknown {
   const segments = path.split('.');
+
+  // source.property.<id> — property on the source/triggering piece
+  if (segments[0] === 'source' && segments[1] === 'property') {
+    if (!ctx.sourcePieceId) return undefined;
+    const piece = session.state.gamepieces[ctx.sourcePieceId];
+    return piece?.properties[segments[2]];
+  }
+
+  // target.property.<id> — property on the current target piece (update loops)
+  if (segments[0] === 'target' && segments[1] === 'property') {
+    if (!ctx.targetPieceId) return undefined;
+    const piece = session.state.gamepieces[ctx.targetPieceId];
+    return piece?.properties[segments[2]];
+  }
 
   // game.property.<id>
   if (segments[0] === 'game' && segments[1] === 'property') {

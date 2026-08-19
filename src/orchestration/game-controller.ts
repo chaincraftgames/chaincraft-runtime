@@ -40,6 +40,8 @@ import type {
 import { step } from './game-step.js';
 import { createFlowRunner } from './flow-runner.js';
 import { resolveOptions } from './options.js';
+import type { ProjectedState } from '#chaincraft/state/projection.js';
+import { projectStateForPlayer } from '#chaincraft/state/projection.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -84,6 +86,11 @@ export class GameController {
   private execState: GameExecutionState | undefined = undefined;
   // Dependencies needed by the game execution.
   private deps: GameExecutionDeps | undefined = undefined;
+
+  /** Whether init() has been called and the game is running. */
+  get isInitialized(): boolean {
+    return this.execState !== undefined;
+  }
 
   /** Pending player prompts, keyed by player ID. */
   #pendingPrompts = new Map<string, PlayerInputSuspension>();
@@ -138,6 +145,7 @@ export class GameController {
       advanceFlow: createFlowRunner(this.module),
       resolveOptions,
     };
+    session.events.emit({ kind: 'game:init', gameId, players });
     const result = await step(this.execState, undefined, this.deps);
     await this.settle(result);
   }
@@ -169,7 +177,13 @@ export class GameController {
     return structuredClone(this.execState.session.state);
   }
 
-  
+  /** Returns the game state as seen by the given player, with visibility rules applied. */
+  public projectStateForPlayer(playerId: string): ProjectedState {
+    if (!this.execState) {
+      throw new Error('GameController not initialized — call init() first');
+    }
+    return projectStateForPlayer(this.execState.session, playerId);
+  }
 
   /** Returns the pending suspension for the given player, or undefined if none. */
   public promptFor(playerId: string): PlayerInputSuspension | undefined {
@@ -231,6 +245,7 @@ export class GameController {
     if (result.kind === 'complete') {
       this.#pendingPrompts.clear();
       this.#outcome = result.outcome;
+      this.execState!.session.events.emit({ kind: 'game:complete', outcome: result.outcome });
       this.options.events?.onComplete?.(result.outcome);
     }
   }
@@ -244,6 +259,7 @@ export class GameController {
     if (outbox.length === 0) return;
     const messages = outbox.splice(0) as Message[];
     for (const message of messages) {
+      this.execState!.session.events.emit({ kind: 'message:emit', message });
       this.options.events?.onMessage?.(message);
     }
   }

@@ -362,6 +362,11 @@ async function resumePlayerTurn(
       throw new Error(`Player "${input.playerId}" pending has no group/inputId for queue-level input`);
     }
     pending.group.collected[pending.inputId] = input.value;
+    state.session.events.emit({
+      kind: 'input:resolve',
+      playerId: input.playerId,
+      value: input.value,
+    });
     playerTurn.pending = undefined;
     // Fall through to drain the player turn.
   }
@@ -425,6 +430,11 @@ async function drainQueue(
         input: item.input,
         ...(options !== undefined && { options }),
       };
+      state.session.events.emit({
+        kind: 'input:prompt',
+        playerId: item.group.actorId,
+        suspension,
+      });
       queue.shift();
       return ctx.onPlayerInputNeeded(suspension, item.group, item.input.id);
     }
@@ -552,6 +562,16 @@ async function executeEffectItem(
   };
   if (registration.kind === 'effect-executor') {
     await registration.execute(state.session, ctx);
+    state.session.events.emit({
+      kind: 'effect:execute',
+      effectId: typeof item.effect === 'string'
+        ? item.effect
+        : (typeof item.effect === 'object' && item.effect !== null && 'ref' in item.effect && typeof item.effect.ref === 'string'
+          ? item.effect.ref
+          : kind),
+      effectKind: kind,
+      context: ctx,
+    });
   } else {
     throw new Error(`Suspending effect "${kind}" is not yet handled.`);
   }

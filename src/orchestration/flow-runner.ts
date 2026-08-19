@@ -162,6 +162,7 @@ function advanceGame(
 
   if (ls.phase === 'enter-hooks') {
     ls.phase = 'children';
+    state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'children' });
     const items = buildHookItems(node.hooks?.onEnter, undefined);
     if (items.length) return { kind: 'enqueue', items };
   }
@@ -173,12 +174,14 @@ function advanceGame(
       return resumeTop(state, module, nodeIndex);
     }
     ls.phase = 'complete-hooks';
+    state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'complete-hooks' });
     const items = buildHookItems(node.hooks?.onComplete, undefined);
     if (items.length) return { kind: 'enqueue', items };
   }
 
   // Done — pop and resume parent.
   state.flowStack.pop();
+  state.session.events.emit({ kind: 'flow:exit', nodeId: node.id });
   return resumeTop(state, module, nodeIndex);
 }
 
@@ -198,6 +201,7 @@ function advanceLoop(
 
   if (ls.phase === 'enter-hooks') {
     ls.phase = 'children';
+    state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'children' });
 
     // Write the current iteration count to the specified state path, if configured.
     if (node.writeIterationTo) {
@@ -222,17 +226,20 @@ function advanceLoop(
 
     if (shouldExit) {
       ls.phase = 'complete-hooks';
+      state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'complete-hooks' });
       const items = buildHookItems(node.hooks?.onComplete, undefined);
       if (items.length) return { kind: 'enqueue', items };
     } else {
       // Start next iteration — fire onEnter again.
       ls.phase = 'enter-hooks';
+      state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'enter-hooks' });
       return advanceLoop(state, module, nodeIndex, node, frame);
     }
   }
 
   // complete-hooks already drained — pop.
   state.flowStack.pop();
+  state.session.events.emit({ kind: 'flow:exit', nodeId: node.id });
   return resumeTop(state, module, nodeIndex);
 }
 
@@ -282,6 +289,7 @@ function advanceTurn(
 
   if (ls.phase === 'enter-hooks') {
     ls.phase = 'acting';
+    state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'acting' });
     const items = buildHookItems(node.hooks?.onEnter, undefined);
     if (items.length) return { kind: 'enqueue', items };
   }
@@ -292,9 +300,11 @@ function advanceTurn(
     if (eligible.length === 0) {
       // All actors have completed their grammar — move to complete-hooks.
       ls.phase = 'complete-hooks';
+      state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'complete-hooks' });
       const items = buildHookItems(node.hooks?.onComplete, undefined);
       if (items.length) return { kind: 'enqueue', items };
       state.flowStack.pop();
+      state.session.events.emit({ kind: 'flow:exit', nodeId: node.id });
       return resumeTop(state, module, nodeIndex);
     }
 
@@ -321,6 +331,7 @@ function advanceTurn(
   if (ls.phase === 'complete-hooks') {
     // Reached when complete-hooks produced items; step() drained them and called back.
     state.flowStack.pop();
+    state.session.events.emit({ kind: 'flow:exit', nodeId: node.id });
     return resumeTop(state, module, nodeIndex);
   }
 
@@ -331,6 +342,8 @@ function advanceTurn(
 function pushFrame(state: GameExecutionState, node: FlowNode): FlowFrame {
   const frame: FlowFrame = { nodeId: node.id, localState: initFrameState(node) };
   state.flowStack.push(frame);
+  state.session.events.emit({ kind: 'flow:enter', nodeId: node.id, nodeType: node.kind });
+  state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'enter-hooks' });
   return frame;
 }
 

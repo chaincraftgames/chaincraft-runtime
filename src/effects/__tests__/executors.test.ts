@@ -8,6 +8,7 @@ import { executeRoll } from '../roll.js';
 import { executeOrient } from '../orient.js';
 import { executeReveal, executeHide } from '../reveal-hide.js';
 import { createSeededRng } from '#chaincraft/rng/seeded.js';
+import { GameEventEmitter } from '#chaincraft/events/emitter.js';
 import { EffectBus } from '../index.js';
 import { AdjustablePendingEffect } from '../effect-bus.js';
 
@@ -54,12 +55,14 @@ function makeState(overrides?: Partial<GameState>): GameState {
     gameInventories: {},
     players: {
       p1: {
+        roles: [],
         properties: { roundsWon: 0 },
         inventories: {
           forge: { structure: 'stack', pieceIds: ['weapon-1'] },
         },
       },
       p2: {
+        roles: [],
         properties: { roundsWon: 0 },
         inventories: {
           forge: { structure: 'stack', pieceIds: [] },
@@ -89,6 +92,7 @@ function makeSession(seed = 42): GameSession {
     players: ['p1', 'p2'],
     outbox: [],
     rng: createSeededRng(seed),
+    events: new GameEventEmitter(),
     _inventoryCache: new Map(),
   };
 }
@@ -1084,6 +1088,7 @@ describe('executeMessage', () => {
     expect(session.outbox).toHaveLength(1);
     expect(session.outbox[0]).toEqual({
       to: 'all',
+      recipients: ['p1', 'p2'],
       content: 'Round begins!',
     });
   });
@@ -1095,6 +1100,7 @@ describe('executeMessage', () => {
     }));
     expect(session.outbox[0]).toEqual({
       to: 'p1',
+      recipients: ['p1'],
       content: 'Your secret weapon is ready.',
     });
   });

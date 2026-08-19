@@ -41,10 +41,7 @@ function resolveAudience(
 
   if (to.startsWith('role:')) {
     const roleId = to.slice(5);
-    return session.players.filter((p) => {
-      const props = session.state.players[p]?.properties ?? {};
-      return Object.values(props).some((v) => v === roleId);
-    });
+    return session.players.filter((p) => session.state.players[p]?.roles.includes(roleId));
   }
 
   // Specific player ID

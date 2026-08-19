@@ -11,13 +11,13 @@
 // ---------------------------------------------------------------------------
 
 import type { GameSession, EffectContext, PropertyConfig } from '#chaincraft/types.js';
-import { resolveValue } from '#chaincraft/effects/resolve-value.js';
-import type { PropertyValue } from '#chaincraft/effects/resolve-value.js';
+import { resolveValue, resolvePieceRef } from '#chaincraft/effects/resolve-value.js';
+import type { PropertyValue, PieceRef } from '#chaincraft/effects/resolve-value.js';
 import { resolvePlayerTarget } from '#chaincraft/effects/player-target.js';
 import type { PlayerTarget } from '#chaincraft/effects/player-target.js';
 import { StateWriteEvent } from './effect-bus.js';
 
-type SetStateEffectDef = { path: string; value: PropertyValue; target?: PlayerTarget };
+type SetStateEffectDef = { path: string; value: PropertyValue; target?: PlayerTarget; source?: PieceRef };
 
 /**
  * Validate that a value written to a ref-typed property is a known entity ID.
@@ -59,15 +59,19 @@ export async function executeSetState(
   session: GameSession,
   ctx: EffectContext<SetStateEffectDef>,
 ): Promise<void> {
-  const { path, value: pv, target } = ctx.effectDef;
+  const { path, value: pv, target, source } = ctx.effectDef;
 
   const segments = path.split('.');
+
+  // Resolve source piece if specified
+  const sourcePieceId = source ? resolvePieceRef(ctx, source) : ctx.sourcePieceId;
+  const valueCtx = sourcePieceId ? { ...ctx, sourcePieceId } : ctx;
 
   if (segments[0] === 'game' && segments[1] === 'property') {
     const key = segments[2];
     const config = session.config.gameProperties[key];
     const current = session.state.gameProperties[key];
-    let resolved = resolveValue(pv, current, session, ctx, config);
+    let resolved = resolveValue(pv, current, session, valueCtx, config);
     validateRefValue(resolved, config, session, path);
     session.state.gameProperties[key] = resolved;
   } else if (segments[0] === 'player' && segments[1] === 'property') {
@@ -85,7 +89,7 @@ export async function executeSetState(
         pv, 
         current, 
         session, 
-        { ...ctx, targetPlayerId: playerId }, 
+        { ...valueCtx, targetPlayerId: playerId }, 
         config
       );
       validateRefValue(resolved, config, session, path);

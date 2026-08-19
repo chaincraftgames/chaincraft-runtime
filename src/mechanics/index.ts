@@ -1,1 +1,1 @@
-export * from './trump/index.js';
+export * from './dominant-gamepiece/index.js';

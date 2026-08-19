@@ -100,6 +100,8 @@ export type Gamepiece = {
 // ---------------------------------------------------------------------------
 
 export type PlayerState = {
+  /** Role IDs currently held by this player. Managed by the engine; do not mutate directly. */
+  roles: string[];
   properties: Record<string, unknown>;
   inventories: Record<string, InventoryData>;
 };
@@ -195,11 +197,14 @@ export type GameSession = {
 };
 
 export type Message = {
-  /** Recipient: 'all', 'actor', 'opponents', 'role:<id>', or a specific player ID.
-   * Broadcast targets ('all', 'opponents', 'role:<id>') are visible to all matched players.
-   * Point targets ('actor', player ID) are private to that player only.
-   */
+  /** Spec-level recipient intent: 'all', 'actor', 'opponents', 'role:<id>', or a player ID. */
   to: string;
+  /**
+   * Resolved list of player IDs who should receive this message. Set by the runtime
+   * at effect execution time (where actor context is available). Hosts should use
+   * this list for delivery rather than interpreting `to` themselves.
+   */
+  recipients: string[];
   content: string;
 };
 
@@ -225,6 +230,24 @@ export type InventoryConfig = {
   role?: string;
 };
 
+/**
+ * Visibility for gamepiece properties. Mirrors PropertyVisibilitySchema in gamedef.
+ *   always   — visible to all players regardless of face state (e.g. card-back set symbol)
+ *   revealed — visible to all when the piece is face-up; hidden when face-down (e.g. card rank)
+ *   owner    — visible only to the player who owns the piece
+ *   never    — engine-tracked only; never shown to any player (e.g. internal flags)
+ */
+export type GamepiecePropertyVisibility = 'always' | 'revealed' | 'owner' | 'never';
+
+/**
+ * Visibility for player- and game-scoped state properties.
+ *   public    — visible to all players (e.g. score, health)
+ *   private   — visible only to the owning player (e.g. secret bid, hidden hand value)
+ *   same-role — visible to players who share a role (e.g. team-scoped collaboration state)
+ *   never     — engine-tracked only; never shown to any player
+ */
+export type StatePropertyVisibility = 'public' | 'private' | 'same-role' | 'never';
+
 export type PropertyConfig = {
   mutable: boolean;
   min?: number;
@@ -233,6 +256,17 @@ export type PropertyConfig = {
   computed?: ComputedPropertyConfig;
   /** When set, set-state validates that written values are valid entity IDs of this kind. */
   refType?: RefType;
+  /** For player/game properties. Defaults to 'public' if omitted. */
+  visibility?: StatePropertyVisibility;
+};
+
+export type GamepiecePropertyConfig = {
+  mutable: boolean;
+  min?: number;
+  max?: number;
+  enumValues?: string[];
+  /** Defaults to 'always' if omitted. */
+  visibility?: GamepiecePropertyVisibility;
 };
 
 /**
@@ -249,13 +283,15 @@ export type ComputedPropertyConfig = {
 
 export type GamepieceTypeConfig = {
   category: 'card' | 'token' | 'dice' | 'tile' | 'board';
-  properties: Record<string, PropertyConfig>;
+  properties: Record<string, GamepiecePropertyConfig>;
   hasFaceState?: boolean;
   exhaustible?: boolean;
   faceCount?: number;
   orientationCount?: number;
   inventorySlots?: string[];
 };
+
+export type RoleVisibility = 'public' | 'hidden';
 
 export type GameConfig = {
   inventories: Record<string, InventoryConfig>;
@@ -265,13 +301,16 @@ export type GameConfig = {
   playerCount: { min: number; max: number };
   /** Valid role IDs from the players module. Used to validate player-role-id ref writes. */
   roles?: string[];
+  /** Visibility per role ID. Roles not listed default to 'public'. */
+  roleVisibility?: Record<string, RoleVisibility>;
 };
 
 // ---------------------------------------------------------------------------
 // Effect context (execution-time, not persisted)
 // ---------------------------------------------------------------------------
 
-export type EffectContext<T = Record<string, unknown>> = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type EffectContext<T = any> = {
   /** The player whose turn/action triggered this effect chain (null for game-level effects). */
   actorId: string | null;
   /** The player this effect iteration is currently targeting (set by executors that resolve PlayerTarget). */
@@ -558,9 +597,12 @@ export type ActionDef = {
 // Mechanic types are imported from their own modules (e.g. mechanics/trump).
 // ---------------------------------------------------------------------------
 
-export type CompiledGameModule = {
+/** Information about the number of players a game supports. */
+export interface PlayerCount { min: number; max: number };
+
+export interface CompiledGameModule {
   readonly specId: string;
-  readonly metadata: { name: string; playerCount: { min: number; max: number } };
+  readonly metadata: { name: string; playerCount: PlayerCount };
 
   /** Create a new GameSession for this spec with the given players. */
   createSession(gameId: string, players: string[]): GameSession;

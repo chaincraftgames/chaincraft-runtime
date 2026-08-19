@@ -13,6 +13,7 @@ import type {
   PlayerStateBase,
   GamepieceStateBase,
 } from '#chaincraft/types.js';
+import { GameEventEmitter } from '#chaincraft/events/emitter.js';
 
 // ---------------------------------------------------------------------------
 // Test-scoped typed projections (mimicking compiler-generated interfaces)
@@ -69,8 +70,8 @@ function makeState(overrides?: Partial<GameState>): GameState {
     gameProperties: { currentRound: 0, gameWinner: '', includeReversal: false },
     gameInventories: {},
     players: {
-      p1: { properties: { roundsWon: 0 }, inventories: {} },
-      p2: { properties: { roundsWon: 0 }, inventories: {} },
+      p1: { roles: [], properties: { roundsWon: 0 }, inventories: {} },
+      p2: { roles: [], properties: { roundsWon: 0 }, inventories: {} },
     },
     gamepieces: {
       'weapon-1': {
@@ -98,6 +99,7 @@ function makeSession(overrides?: {
     players: ['p1', 'p2'],
     outbox: [],
     rng: { nextFloat: () => 0.5 },
+    events: new GameEventEmitter(),
     _inventoryCache: new Map(),
   };
 }
@@ -392,8 +394,8 @@ describe('computed game properties', () => {
           arena: { structure: 'stack', pieceIds: ['weapon-1', 'weapon-2'] },
         },
         players: {
-          p1: { properties: { roundsWon: 0 }, inventories: {} },
-          p2: { properties: { roundsWon: 0 }, inventories: {} },
+          p1: { roles: [], properties: { roundsWon: 0 }, inventories: {} },
+          p2: { roles: [], properties: { roundsWon: 0 }, inventories: {} },
         },
         gamepieces: {
           'weapon-1': {
@@ -496,12 +498,14 @@ describe('computed player properties', () => {
         gameInventories: {},
         players: {
           p1: {
+            roles: [],
             properties: { roundsWon: 0 },
             inventories: {
               arsenal: { structure: 'stack', pieceIds: ['w1', 'w2'] },
             },
           },
           p2: {
+            roles: [],
             properties: { roundsWon: 0 },
             inventories: {
               arsenal: { structure: 'stack', pieceIds: [] },

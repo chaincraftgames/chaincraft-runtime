@@ -28,6 +28,7 @@ import { createFlowRunner } from '../flow-runner.js';
 import { nextPlayerTurnWork, type PlayerTurnSignal } from '../player-effects-resolver.js';
 import { step } from '../game-step.js';
 import { createSeededRng } from '#chaincraft/rng/seeded.js';
+import { GameEventEmitter } from '#chaincraft/events/emitter.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -47,7 +48,7 @@ function makeState(players: string[]): GameState {
   return {
     gameProperties: {},
     gameInventories: {},
-    players: Object.fromEntries(players.map((p) => [p, { properties: {}, inventories: {} }])),
+    players: Object.fromEntries(players.map((p) => [p, { roles: [], properties: {}, inventories: {} }])),
     gamepieces: {},
   };
 }
@@ -61,6 +62,7 @@ function makeSession(players: string[] = ['p1', 'p2']): GameSession {
     players,
     outbox: [],
     rng: createSeededRng(42),
+    events: new GameEventEmitter(),
     _inventoryCache: new Map(),
   };
 }

@@ -1,6 +1,7 @@
 import type { GameSession, GameState, GameConfig, EffectContext } from '#chaincraft/types.js';
 import { executeShuffle } from '../shuffle.js';
 import { createSeededRng } from '#chaincraft/rng/seeded.js';
+import { GameEventEmitter } from '#chaincraft/events/emitter.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -27,12 +28,13 @@ function makeState(): GameState {
     },
     players: {
       p1: {
+        roles: [],
         properties: {},
         inventories: {
           hand: { structure: 'none', pieceIds: ['c6', 'c7', 'c8'] },
         },
       },
-      p2: { properties: {}, inventories: { hand: { structure: 'none', pieceIds: [] } } },
+      p2: { roles: [], properties: {}, inventories: { hand: { structure: 'none', pieceIds: [] } } },
     },
     gamepieces: {
       c1: { typeId: 'card', ownerId: 'game', properties: {}, faceUp: false, exhausted: false, visibleTo: null },
@@ -56,6 +58,7 @@ function makeSession(seed = 42): GameSession {
     players: ['p1', 'p2'],
     outbox: [],
     rng: createSeededRng(seed),
+    events: new GameEventEmitter(),
     _inventoryCache: new Map(),
   };
 }
