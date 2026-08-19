@@ -10,6 +10,7 @@ import type {
   GameOutcome,
   PlayerInputSuspension,
 } from "#chaincraft/orchestration/types.js";
+import type { StateChangeEvent } from "#chaincraft/api/state-change-events.js";
 
 // ---------------------------------------------------------------------------
 // Event payload types
@@ -24,7 +25,8 @@ export type GameEvent =
   | EffectExecuteEvent
   | InputPromptEvent
   | InputResolveEvent
-  | MessageEmitEvent;
+  | MessageEmitEvent
+  | StateChangeInternalEvent;
 
 /** An event emitted when a game is initialized. */
 export interface GameInitEvent {
@@ -85,6 +87,12 @@ export interface InputResolveEvent {
 export interface MessageEmitEvent {
   kind: "message:emit";
   message: Message;
+}
+
+/** A single resolved state mutation, emitted by effects and collected by GameController. */
+export interface StateChangeInternalEvent {
+  kind: "state:change";
+  change: StateChangeEvent;
 }
 
 // ---------------------------------------------------------------------------

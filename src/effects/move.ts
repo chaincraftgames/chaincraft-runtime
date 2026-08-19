@@ -17,7 +17,11 @@
 //   - at: optional placement (stack-top, line-index, grid-cell, graph-node, or { param })
 // ---------------------------------------------------------------------------
 
-import type { GameSession, EffectContext, InventoryPlacement } from '#chaincraft/types.js';
+import type { 
+  GameSession, 
+  EffectContext, 
+  InventoryPosition 
+} from '#chaincraft/types.js';
 import { selectGamepieces } from './gamepiece-selector.js';
 import type { GamepieceSelector } from './gamepiece-selector.js';
 import { getInventory } from '#chaincraft/inventory/index.js';
@@ -26,7 +30,7 @@ import { resolvePlayerRef } from './player-target.js';
 type InventoryTarget = {
   player?: { stateRef: string } | { param: string };
   inventory: string;
-  at?: InventoryPlacement | { param: string };
+  at?: InventoryPosition | { param: string };
 };
 
 type MoveEffectDef = { from: GamepieceSelector; to: InventoryTarget };
@@ -39,13 +43,13 @@ type MoveEffectDef = { from: GamepieceSelector; to: InventoryTarget };
 function resolvePlacement(
   at: InventoryTarget['at'],
   actionInputs: Record<string, unknown>,
-): InventoryPlacement | undefined {
+): InventoryPosition | undefined {
   if (!at) return undefined;
   if ('param' in at) {
     const val = actionInputs[at.param];
-    return val as InventoryPlacement | undefined;
+    return val as InventoryPosition | undefined;
   }
-  return at as InventoryPlacement;
+  return at as InventoryPosition;
 }
 
 export async function executeMove(

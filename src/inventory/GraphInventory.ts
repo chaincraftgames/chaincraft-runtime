@@ -1,6 +1,6 @@
 import type { 
   GraphInventoryData, 
-  InventoryPlacement, 
+  InventoryPosition, 
   RngProvider, 
   SelectionMode 
 } from '#chaincraft/types.js';
@@ -38,7 +38,7 @@ export class GraphInventory implements Inventory {
     return Object.values(this.data.nodes).filter(v => v !== null).length;
   }
 
-  add(pieceId: string, placement?: InventoryPlacement): void {
+  add(pieceId: string, placement?: InventoryPosition): void {
     if (placement?.kind === 'graph-node') {
       this.data.nodes[placement.nodeId] = pieceId;
     } else {

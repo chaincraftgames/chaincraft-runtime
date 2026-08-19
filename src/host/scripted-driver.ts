@@ -20,7 +20,7 @@ import type {
 import {
   GameController,
   type SystemResponder,
-} from '#chaincraft/orchestration/game-controller.js';
+} from '#chaincraft/api/game-controller.js';
 
 // ---------------------------------------------------------------------------
 // Transcript types (moved from game-host.ts)

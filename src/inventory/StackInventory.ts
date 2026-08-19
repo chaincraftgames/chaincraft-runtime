@@ -1,6 +1,6 @@
 import type { 
   StackInventoryData, 
-  InventoryPlacement, 
+  InventoryPosition, 
   RngProvider, 
   SelectionMode 
 } from '#chaincraft/types.js';
@@ -38,7 +38,7 @@ export class StackInventory implements Inventory {
     return this.data.pieceIds.length;
   }
 
-  add(pieceId: string, placement?: InventoryPlacement): void {
+  add(pieceId: string, placement?: InventoryPosition): void {
     if (placement?.kind === 'stack-bottom') {
       this.data.pieceIds.push(pieceId);
     } else {

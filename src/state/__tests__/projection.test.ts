@@ -1,6 +1,7 @@
 import type { GameSession, GameConfig, GameState, Gamepiece, InventoryConfig } from '#chaincraft/types.js';
 import { projectStateForPlayer } from '#chaincraft/state/projection.js';
 import type { ProjectedState, ProjectedInventory } from '#chaincraft/state/projection.js';
+import { GameEventEmitter } from '#chaincraft/events/emitter.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -130,6 +131,7 @@ function makeSession(overrides?: {
     players: ['alice', 'bob'],
     outbox: [],
     rng: { nextFloat: () => 0.5 },
+    events: new GameEventEmitter(),
     _inventoryCache: new Map(),
   };
 }
@@ -576,6 +578,7 @@ describe('projectStateForPlayer', () => {
         players: ['alice', 'bob', 'carol'],
         outbox: [],
         rng: { nextFloat: () => 0.5 },
+        events: new GameEventEmitter(),
         _inventoryCache: new Map(),
       };
     }
@@ -649,6 +652,7 @@ describe('projectStateForPlayer', () => {
         players: ['alice', 'bob', 'carol'],
         outbox: [],
         rng: { nextFloat: () => 0.5 },
+        events: new GameEventEmitter(),
         _inventoryCache: new Map(),
       };
     }

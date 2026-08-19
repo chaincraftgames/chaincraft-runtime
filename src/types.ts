@@ -65,9 +65,10 @@ export type InventoryData =
 // Inventory placement (for add/move-to operations)
 // ---------------------------------------------------------------------------
 
-export type InventoryPlacement =
+export type InventoryPosition =
   | { kind: 'stack-top' }
   | { kind: 'stack-bottom' }
+  | { kind: 'stack-index'; index: number }
   | { kind: 'line-index'; index: number }
   | { kind: 'grid-cell'; row: string | number; col: string | number }
   | { kind: 'graph-node'; nodeId: string };
@@ -178,6 +179,8 @@ export interface RngProvider {
  */
 export type Predicate = (session: GameSession, actorId?: string) => boolean;
 
+import type { GameEventEmitter } from '#chaincraft/events/emitter.js';
+
 export type GameSession = {
   readonly gameId: string;
   readonly specId: string;
@@ -186,6 +189,7 @@ export type GameSession = {
   readonly players: string[];
   readonly outbox: Message[];
   readonly rng: RngProvider;
+  readonly events: GameEventEmitter;
   /** 
    * Effect bus for named-effect intercept (passives/reactives). 
    * Writable for testing only; production code should use the bus on the GameSession.

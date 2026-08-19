@@ -16,12 +16,30 @@ export type {
   MessageEmitEvent,
   GameInitEvent,
   GameCompleteEvent,
+  StateChangeInternalEvent,
 } from "#chaincraft/events/emitter.js";
-export { GameController } from "#chaincraft/orchestration/game-controller.js";
+export { GameController } from "#chaincraft/api/game-controller.js";
 export type {
+  GameControllerEvents,
   GameControllerOptions,
   SystemResponder,
-} from "#chaincraft/orchestration/game-controller.js";
+} from "#chaincraft/api/game-controller.js";
+export type {
+  StateChangeEvent,
+  InventoryRef,
+  InventoryPosition,
+  PieceMovedEvent,
+  PiecesDistributedEvent,
+  PieceFlippedEvent,
+  PieceRolledEvent,
+  PieceOrientedEvent,
+  PieceExhaustedEvent,
+  PiecePropertyChangedEvent,
+  PieceRevealedEvent,
+  PieceHiddenEvent,
+  InventoryShuffledEvent,
+  StatePropertyChangedEvent,
+} from "#chaincraft/api/state-change-events.js";
 export type { GameOutcome } from "#chaincraft/orchestration/types.js";
 export type { 
   PlayerInputSuspension, 

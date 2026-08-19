@@ -1,6 +1,6 @@
 import type {
   InventoryData,
-  InventoryPlacement,
+  InventoryPosition,
   InventoryStructure,
   RngProvider,
   SelectionMode,
@@ -17,7 +17,7 @@ export interface Inventory {
   count(): number;
 
   /** Add a piece at the given placement (structure-specific default if omitted). */
-  add(pieceId: string, placement?: InventoryPlacement): void;
+  add(pieceId: string, placement?: InventoryPosition): void;
 
   /** Remove a piece. Throws if not present. */
   remove(pieceId: string): void;

@@ -1,6 +1,6 @@
 import type { 
   GridInventoryData, 
-  InventoryPlacement, 
+  InventoryPosition, 
   RngProvider, 
   SelectionMode 
 } from '#chaincraft/types.js';
@@ -42,7 +42,7 @@ export class GridInventory implements Inventory {
     return Object.values(this.data.cells).filter(v => v !== null).length;
   }
 
-  add(pieceId: string, placement?: InventoryPlacement): void {
+  add(pieceId: string, placement?: InventoryPosition): void {
     if (placement?.kind === 'grid-cell') {
       this.data.cells[cellKey(placement.row, placement.col)] = pieceId;
     } else {

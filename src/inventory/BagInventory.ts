@@ -1,4 +1,9 @@
-import type { BagInventoryData, InventoryPlacement, RngProvider, SelectionMode } from '../types.js';
+import type { 
+  BagInventoryData, 
+  InventoryPosition, 
+  RngProvider, 
+  SelectionMode 
+} from '../types.js';
 import type { Inventory } from './Inventory.js';
 import { pickRandom } from './utils.js';
 
@@ -33,7 +38,7 @@ export class BagInventory implements Inventory {
     return this.data.pieceIds.length;
   }
 
-  add(pieceId: string, _placement?: InventoryPlacement): void {
+  add(pieceId: string, _placement?: InventoryPosition): void {
     this.data.pieceIds.push(pieceId);
   }
 

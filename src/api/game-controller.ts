@@ -3,28 +3,27 @@
 //
 // Owns the settle loop: after each step it drains the outbox, auto-resolves
 // system suspensions (llm / external-data) via an optional SystemResponder,
-// and fires events for messages, prompts, and completion.
+// and fires events for messages, prompts, completion, and state changes.
 //
 // Multi-prompt model: pendingPrompts maps each awaited playerId to their
 // current PlayerInputSuspension. GameController diffs the declared waiting set
 // from each step result and fires onPrompt once per newly-appearing suspension.
 // currentPrompt is a convenience for single-prompt (sequential) games.
 //
-// Event-callback re-entrancy: onMessage, onPrompt, and onComplete all fire
-// synchronously during the await of init() / processAction(), before the
-// promise resolves. Callbacks must not call processAction() re-entrantly.
+// Event-callback re-entrancy: onMessage, onPrompt, onComplete, and onStateChange
+// all fire synchronously during the await of init() / processAction(), before
+// the promise resolves. Callbacks must not call processAction() re-entrantly.
 //
 // Usage:
 //   const ctrl = new GameController(module, { events: { onPrompt, onMessage, onComplete } });
 //   await ctrl.init('game-1', ['alice', 'bob']);
-//   // onPrompt fires (if a player prompt is pending)
 //   await ctrl.processAction({ playerId: 'alice', value: ... });
 // ---------------------------------------------------------------------------
 
-import type { 
-  CompiledGameModule, 
-  GameState, 
-  Message 
+import type {
+  CompiledGameModule,
+  GameState,
+  Message,
 } from '#chaincraft/types.js';
 import type {
   GameExecutionState,
@@ -34,14 +33,14 @@ import type {
   StepResult,
   LlmSuspension,
   ExternalDataSuspension,
-  SystemResponse,
   GameOutcome,
-} from './types.js';
-import { step } from './game-step.js';
-import { createFlowRunner } from './flow-runner.js';
-import { resolveOptions } from './options.js';
+} from '#chaincraft/orchestration/types.js';
+import { step } from '#chaincraft/orchestration/game-step.js';
+import { createFlowRunner } from '#chaincraft/orchestration/flow-runner.js';
+import { resolveOptions } from '#chaincraft/orchestration/options.js';
 import type { ProjectedState } from '#chaincraft/state/projection.js';
 import { projectStateForPlayer } from '#chaincraft/state/projection.js';
+import type { StateChangeEvent } from '#chaincraft/api/state-change-events.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -52,13 +51,18 @@ export type SystemResponder = (
   suspension: LlmSuspension | ExternalDataSuspension,
 ) => Promise<unknown>;
 
+/** Callbacks the host registers to observe game progress. */
 export interface GameControllerEvents {
-  /** A player must act. Fires after init()/processAction() apply all pending work. */
+  // -- Game control ----------------------------------------------------------
+  /** A player must act. Fires after init()/processAction() settle all pending work. */
   onPrompt?(prompt: PlayerInputSuspension): void;
   /** One call per Message drained from session.outbox, in emission order. */
   onMessage?(message: Message): void;
   /** Terminal. Fires at most once; no onPrompt fires after it. */
   onComplete?(outcome: GameOutcome): void;
+  // -- State observation -----------------------------------------------------
+  /** Batch of resolved state mutations from one action, in occurrence order. */
+  onStateChange?(changes: StateChangeEvent[]): void;
 }
 
 export interface GameControllerOptions {
@@ -71,20 +75,16 @@ export interface GameControllerOptions {
 // GameController
 // ---------------------------------------------------------------------------
 
-/** 
- * A GameController instance is responsible for executing a single game session,
- * draining the session outbox, auto-resolving system suspensions, and firing events 
- * for messages, prompts, and completion.
+/**
+ * Drives a single game session: runs the step loop, resolves system suspensions,
+ * delivers messages/prompts/state-changes to the host via callbacks.
  */
 export class GameController {
-  /** The compiled game module this controller is running. */
   private readonly module: CompiledGameModule;
-  /** The options used to configure this controller. */
   private readonly options: GameControllerOptions;
 
-  /** Live execution state. Set during init(), undefined beforehand. */
+  /** Live execution state — undefined until init() completes. */
   private execState: GameExecutionState | undefined = undefined;
-  // Dependencies needed by the game execution.
   private deps: GameExecutionDeps | undefined = undefined;
 
   /** Whether init() has been called and the game is running. */
@@ -92,30 +92,28 @@ export class GameController {
     return this.execState !== undefined;
   }
 
-  /** Pending player prompts, keyed by player ID. */
   #pendingPrompts = new Map<string, PlayerInputSuspension>();
-  /** Live view of all pending player-input suspensions, keyed by playerId. Read-only. */
   get pendingPrompts(): ReadonlyMap<string, PlayerInputSuspension> {
     return this.#pendingPrompts;
   }
 
-  /** The final outcome of the game, if it has completed. */
   #outcome: GameOutcome | undefined = undefined;
-  /** The game outcome, once complete. */
   get outcome(): GameOutcome | undefined {
     return this.#outcome;
   }
 
-  /** First pending prompt or undefined — convenience for single-prompt (sequential) games. */
+  /** Convenience for single-prompt (sequential) games. */
   get currentPrompt(): PlayerInputSuspension | undefined {
     const first = this.#pendingPrompts.values().next();
     return first.done ? undefined : first.value;
   }
 
-  /** Whether the game has completed. */
   get isComplete(): boolean {
     return this.#outcome !== undefined;
   }
+
+  /** Accumulates StateChangeEvents from the internal bus during one action. */
+  #pendingStateChanges: StateChangeEvent[] = [];
 
   constructor(module: CompiledGameModule, options: GameControllerOptions = {}) {
     this.module = module;
@@ -126,10 +124,9 @@ export class GameController {
   // Public API
   // -------------------------------------------------------------------------
 
-  /** 
-   * Create the session and run until first player prompt or completion. players
-   * is the list of player ids.  The order of players is used to determine turn order 
-   * for "next-player" input types.
+  /**
+   * Create the session and run until first player prompt or completion.
+   * Player order determines turn order for "next-player" input types.
    */
   public async init(gameId: string, players: string[]): Promise<void> {
     const session = this.module.createSession(gameId, players);
@@ -145,14 +142,18 @@ export class GameController {
       advanceFlow: createFlowRunner(this.module),
       resolveOptions,
     };
+    // Subscribe to internal state-change events; buffer until settle() flushes.
+    session.events.on('state:change', (event) => {
+      this.#pendingStateChanges.push((event as { kind: string; change: StateChangeEvent }).change);
+    });
     session.events.emit({ kind: 'game:init', gameId, players });
     const result = await step(this.execState, undefined, this.deps);
     await this.settle(result);
   }
 
-  /** 
-   * Apply one player's response to the player's current prompt; run until next 
-   * prompt/completion. 
+  /**
+   * Apply one player's response to their current prompt; run until next
+   * prompt/completion.
    */
   public async processAction(input: PlayerInput): Promise<void> {
     if (this.#outcome !== undefined) {
@@ -161,15 +162,11 @@ export class GameController {
     if (!this.#pendingPrompts.has(input.playerId)) {
       throw new Error(`No prompt is awaiting player "${input.playerId}"`);
     }
-    // If step() throws, #pendingPrompts is untouched (settle never ran).
     const result = await step(this.execState!, input, this.deps!);
     await this.settle(result);
   }
 
-  /**
-   * Deep snapshot (structuredClone) of game state.
-   * playerId is reserved for future per-player visibility filtering.
-   */
+  /** Deep snapshot of game state. */
   public getState(_playerId?: string): GameState {
     if (!this.execState) {
       throw new Error('GameController not initialized — call init() first');
@@ -177,7 +174,7 @@ export class GameController {
     return structuredClone(this.execState.session.state);
   }
 
-  /** Returns the game state as seen by the given player, with visibility rules applied. */
+  /** Returns game state projected for the given player (visibility rules applied). */
   public projectStateForPlayer(playerId: string): ProjectedState {
     if (!this.execState) {
       throw new Error('GameController not initialized — call init() first');
@@ -190,16 +187,14 @@ export class GameController {
     return this.#pendingPrompts.get(playerId) ?? undefined;
   }
 
-  /**
-   * Drains the outbox, auto-resolves system suspensions, then diffs the
-   * declared waiting set against pendingPrompts and fires onPrompt for
-   * each newly-appearing suspension.
-   */
+  // -------------------------------------------------------------------------
+  // Private
+  // -------------------------------------------------------------------------
+
   private async settle(result: StepResult): Promise<void> {
     this.drainOutbox();
 
     while (result.kind === 'suspended') {
-      // Single pass: partition waiting into first system suspension + player suspensions.
       let systemSuspension: LlmSuspension | ExternalDataSuspension | undefined;
       const playerSuspensions: PlayerInputSuspension[] = [];
 
@@ -219,16 +214,15 @@ export class GameController {
         }
         const value = await this.options.systemResponder(systemSuspension);
         result = await step(
-          this.execState!, 
-          { requestId: systemSuspension.requestId, result: value }, 
-          this.deps!
+          this.execState!,
+          { requestId: systemSuspension.requestId, result: value },
+          this.deps!,
         );
         this.drainOutbox();
         continue;
       }
 
-      // No system suspensions — diff player suspensions, then replace map with
-      // updated set. Fire onPrompt for each newly-appearing suspension.
+      // Diff player suspensions and fire onPrompt for newly-appearing ones.
       for (const suspension of playerSuspensions) {
         const playerId = suspension.awaiting;
         if (this.#pendingPrompts.get(playerId) !== suspension) {
@@ -239,6 +233,7 @@ export class GameController {
       for (const suspension of playerSuspensions) {
         this.#pendingPrompts.set(suspension.awaiting, suspension);
       }
+      this.#flushStateChanges();
       return;
     }
 
@@ -248,12 +243,9 @@ export class GameController {
       this.execState!.session.events.emit({ kind: 'game:complete', outcome: result.outcome });
       this.options.events?.onComplete?.(result.outcome);
     }
+    this.#flushStateChanges();
   }
 
-  /**
-   * Splices all pending messages from the session outbox and fires onMessage
-   * once per message, in emission order.
-   */
   private drainOutbox(): void {
     const outbox = this.execState!.session.outbox;
     if (outbox.length === 0) return;
@@ -262,5 +254,12 @@ export class GameController {
       this.execState!.session.events.emit({ kind: 'message:emit', message });
       this.options.events?.onMessage?.(message);
     }
+  }
+
+  /** Delivers buffered state changes to the host and clears the buffer. */
+  #flushStateChanges(): void {
+    if (this.#pendingStateChanges.length === 0) return;
+    const changes = this.#pendingStateChanges.splice(0);
+    this.options.events?.onStateChange?.(changes);
   }
 }

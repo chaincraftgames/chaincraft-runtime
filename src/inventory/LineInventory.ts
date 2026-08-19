@@ -1,6 +1,6 @@
 import type { 
   LineInventoryData, 
-  InventoryPlacement, 
+  InventoryPosition, 
   RngProvider, 
   SelectionMode 
 } from '#chaincraft/types.js';
@@ -38,7 +38,7 @@ export class LineInventory implements Inventory {
     return this.data.slots.filter(s => s !== null).length;
   }
 
-  add(pieceId: string, placement?: InventoryPlacement): void {
+  add(pieceId: string, placement?: InventoryPosition): void {
     if (placement?.kind === 'line-index') {
       while (this.data.slots.length <= placement.index) {
         this.data.slots.push(null);

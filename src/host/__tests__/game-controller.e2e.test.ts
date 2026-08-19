@@ -12,7 +12,7 @@
 
 import type { CompiledGameModule, FlowNode, GameState } from '#chaincraft/types.js';
 import type { PlayerInputSuspension } from '#chaincraft/orchestration/types.js';
-import { GameController } from '#chaincraft/orchestration/game-controller.js';
+import { GameController } from '#chaincraft/api/game-controller.js';
 import { drive, type ScriptStep, type TranscriptEntry } from '../scripted-driver.js';
 import { createHighCardModule } from '../fixtures/high-card.js';
 
