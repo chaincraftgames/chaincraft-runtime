@@ -6,11 +6,11 @@
 // Pieces whose type config does not define orientationCount are silently skipped.
 // ---------------------------------------------------------------------------
 
-import type { GameSession, EffectContext } from '#chaincraft/types.js';
-import { selectGamepieces } from './gamepiece-selector.js';
-import type { GamepieceSelector } from './gamepiece-selector.js';
+import type { GameSession, EffectContext } from "#chaincraft/types.js";
+import { selectGamepieces } from "#chaincraft/effects/gamepiece-selector.js";
+import type { GamepieceSelector } from "#chaincraft/effects/gamepiece-selector.js";
 
-type OrientTarget = number | 'rotate-cw' | 'rotate-ccw';
+type OrientTarget = number | "rotate-cw" | "rotate-ccw";
 type OrientEffectDef = { pieces: GamepieceSelector; to: OrientTarget };
 
 export async function executeOrient(
@@ -25,17 +25,27 @@ export async function executeOrient(
     const piece = session.state.gamepieces[pieceId];
     if (!piece) continue;
 
-    const orientationCount = session.config.gamepieceTypes[piece.typeId]?.orientationCount;
+    const orientationCount =
+      session.config.gamepieceTypes[piece.typeId]?.orientationCount;
     if (!orientationCount || orientationCount < 1) continue;
 
     const current = piece.orientationIndex ?? 0;
 
-    if (typeof to === 'number') {
+    if (typeof to === "number") {
       piece.orientationIndex = to % orientationCount;
-    } else if (to === 'rotate-cw') {
+    } else if (to === "rotate-cw") {
       piece.orientationIndex = (current + 1) % orientationCount;
     } else {
-      piece.orientationIndex = (current - 1 + orientationCount) % orientationCount;
+      piece.orientationIndex =
+        (current - 1 + orientationCount) % orientationCount;
     }
+    session.events.emit({
+      kind: "state:change",
+      change: {
+        kind: "piece:oriented",
+        pieceId,
+        orientationIndex: piece.orientationIndex!,
+      },
+    });
   }
 }

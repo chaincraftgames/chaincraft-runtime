@@ -50,6 +50,11 @@ export class GraphInventory implements Inventory {
     }
   }
 
+  positionOf(pieceId: string): InventoryPosition | undefined {
+    const nodeId = Object.keys(this.data.nodes).find(k => this.data.nodes[k] === pieceId);
+    return nodeId ? { kind: 'graph-node', nodeId } : undefined;
+  }
+
   remove(pieceId: string): void {
     const nodeId = Object.keys(this.data.nodes).find(k => this.data.nodes[k] === pieceId);
     if (!nodeId) throw new Error(`Piece ${pieceId} not found in graph inventory`);

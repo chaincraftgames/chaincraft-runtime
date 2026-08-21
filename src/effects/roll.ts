@@ -28,5 +28,6 @@ export async function executeRoll(
     if (!faceCount || faceCount < 1) continue;
 
     piece.faceValue = Math.floor(session.rng.nextFloat() * faceCount) + 1;
+    session.events.emit({ kind: 'state:change', change: { kind: 'piece:rolled', pieceId, faceValue: piece.faceValue } });
   }
 }

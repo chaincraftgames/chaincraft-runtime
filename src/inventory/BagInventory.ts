@@ -42,6 +42,10 @@ export class BagInventory implements Inventory {
     this.data.pieceIds.push(pieceId);
   }
 
+  positionOf(_pieceId: string): InventoryPosition | undefined {
+    return undefined;
+  }
+
   remove(pieceId: string): void {
     const { pieceIds } = this.data;
     const idx = pieceIds.indexOf(pieceId);

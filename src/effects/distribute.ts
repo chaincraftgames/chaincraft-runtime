@@ -27,17 +27,17 @@
 //   the listed role IDs receive pieces.
 // ---------------------------------------------------------------------------
 
-import type { GameSession, EffectContext } from '#chaincraft/types.js';
-import { selectGamepieces } from '#chaincraft/effects/gamepiece-selector.js';
-import type { GamepieceSelector } from '#chaincraft/effects/gamepiece-selector.js';
-import { getInventory } from '#chaincraft/inventory/index.js';
+import type { GameSession, EffectContext } from "#chaincraft/types.js";
+import { selectGamepieces } from "#chaincraft/effects/gamepiece-selector.js";
+import type { GamepieceSelector } from "#chaincraft/effects/gamepiece-selector.js";
+import { getInventory } from "#chaincraft/inventory/index.js";
 
 type DistributeTarget = { inventory: string; roles?: string[] };
 type DistributeEffectDef = {
   from: GamepieceSelector;
   to: DistributeTarget;
   count: number;
-  style?: 'round-robin' | 'batch';
+  style?: "round-robin" | "batch";
 };
 
 /**
@@ -52,7 +52,9 @@ function resolveTargetPlayers(
 
   if (to.roles && to.roles.length > 0) {
     players = players.filter((playerId) =>
-      to.roles!.some((role) => session.state.players[playerId]?.roles.includes(role)),
+      to.roles!.some((role) =>
+        session.state.players[playerId]?.roles.includes(role),
+      ),
     );
   }
 
@@ -63,7 +65,12 @@ export async function executeDistribute(
   session: GameSession,
   ctx: EffectContext<DistributeEffectDef>,
 ): Promise<void> {
-  const { from, to, count: countPerTarget, style = 'round-robin' } = ctx.effectDef;
+  const {
+    from,
+    to,
+    count: countPerTarget,
+    style = "round-robin",
+  } = ctx.effectDef;
 
   // 1. Resolve target players
   const targetPlayerIds = resolveTargetPlayers(session, to);
@@ -78,10 +85,16 @@ export async function executeDistribute(
   // 3. Remove selected pieces from the source inventory
   const sourceInvId = from.inventory;
   const sourceInvConfig = session.config.inventories[sourceInvId];
-  const sourceScope = sourceInvConfig?.scope ?? 'game';
+  const sourceScope = sourceInvConfig?.scope ?? "game";
   const sourcePlayerId =
-    sourceScope === 'player' ? (ctx.targetPlayerId ?? ctx.actorId ?? undefined) : undefined;
-  const sourceInv = getInventory(session, sourceInvId, sourcePlayerId ?? undefined);
+    sourceScope === "player"
+      ? (ctx.targetPlayerId ?? ctx.actorId ?? undefined)
+      : undefined;
+  const sourceInv = getInventory(
+    session,
+    sourceInvId,
+    sourcePlayerId ?? undefined,
+  );
   for (const id of pieceIds) {
     if (sourceInv?.has(id)) sourceInv.remove(id);
   }
@@ -90,7 +103,13 @@ export async function executeDistribute(
   const destInvId = to.inventory;
   const numTargets = targetPlayerIds.length;
 
-  if (style === 'round-robin') {
+  type Deal = {
+    pieceId: string;
+    to: { inventory: { inventoryId: string; ownerId?: string } };
+  };
+  const deals: Deal[] = [];
+
+  if (style === "round-robin") {
     // Piece i goes to targetPlayerIds[i % numTargets]
     for (let i = 0; i < pieceIds.length; i++) {
       const targetPlayerId = targetPlayerIds[i % numTargets];
@@ -99,6 +118,12 @@ export async function executeDistribute(
         destInv.add(pieceIds[i]);
         const piece = session.state.gamepieces[pieceIds[i]];
         if (piece) piece.ownerId = targetPlayerId;
+        deals.push({
+          pieceId: pieceIds[i],
+          to: {
+            inventory: { inventoryId: destInvId, ownerId: targetPlayerId },
+          },
+        });
       }
     }
   } else {
@@ -113,8 +138,27 @@ export async function executeDistribute(
           destInv.add(pieceIds[pieceIdx]);
           const piece = session.state.gamepieces[pieceIds[pieceIdx]];
           if (piece) piece.ownerId = targetPlayerId;
+          deals.push({
+            pieceId: pieceIds[pieceIdx],
+            to: {
+              inventory: { inventoryId: destInvId, ownerId: targetPlayerId },
+            },
+          });
         }
       }
     }
+  }
+
+  if (deals.length > 0) {
+    session.events.emit({
+      kind: "state:change",
+      change: {
+        kind: "pieces:distributed",
+        from: {
+          inventory: { inventoryId: sourceInvId, ownerId: sourcePlayerId },
+        },
+        deals,
+      },
+    });
   }
 }

@@ -17,15 +17,15 @@
 //   - at: optional placement (stack-top, line-index, grid-cell, graph-node, or { param })
 // ---------------------------------------------------------------------------
 
-import type { 
-  GameSession, 
-  EffectContext, 
-  InventoryPosition 
-} from '#chaincraft/types.js';
-import { selectGamepieces } from './gamepiece-selector.js';
-import type { GamepieceSelector } from './gamepiece-selector.js';
-import { getInventory } from '#chaincraft/inventory/index.js';
-import { resolvePlayerRef } from './player-target.js';
+import type {
+  GameSession,
+  EffectContext,
+  InventoryPosition,
+} from "#chaincraft/types.js";
+import { selectGamepieces } from "#chaincraft/effects/gamepiece-selector.js";
+import type { GamepieceSelector } from "#chaincraft/effects/gamepiece-selector.js";
+import { getInventory } from "#chaincraft/inventory/index.js";
+import { resolvePlayerRef } from "#chaincraft/effects/player-target.js";
 
 type InventoryTarget = {
   player?: { stateRef: string } | { param: string };
@@ -41,11 +41,11 @@ type MoveEffectDef = { from: GamepieceSelector; to: InventoryTarget };
  * Otherwise return the literal InventoryPlacement (or undefined for bag inventories).
  */
 function resolvePlacement(
-  at: InventoryTarget['at'],
+  at: InventoryTarget["at"],
   actionInputs: Record<string, unknown>,
 ): InventoryPosition | undefined {
   if (!at) return undefined;
-  if ('param' in at) {
+  if ("param" in at) {
     const val = actionInputs[at.param];
     return val as InventoryPosition | undefined;
   }
@@ -74,10 +74,16 @@ export async function executeMove(
   // 3. Resolve source inventory
   const fromInventoryId = from.inventory;
   const fromInvConfig = session.config.inventories[fromInventoryId];
-  const fromScope = fromInvConfig?.scope ?? 'game';
+  const fromScope = fromInvConfig?.scope ?? "game";
   const resolvedFromPlayerId =
-    fromScope === 'player' ? (fromPlayerId ?? fromCtx.targetPlayerId ?? fromCtx.actorId) : undefined;
-  const sourceInv = getInventory(session, fromInventoryId, resolvedFromPlayerId ?? undefined);
+    fromScope === "player"
+      ? (fromPlayerId ?? fromCtx.targetPlayerId ?? fromCtx.actorId)
+      : undefined;
+  const sourceInv = getInventory(
+    session,
+    fromInventoryId,
+    resolvedFromPlayerId ?? undefined,
+  );
 
   // 4. Resolve destination player
   const toPlayerRef = to.player;
@@ -88,16 +94,22 @@ export async function executeMove(
   // 5. Resolve destination inventory
   const toInventoryId = to.inventory;
   const toInvConfig = session.config.inventories[toInventoryId];
-  const toScope = toInvConfig?.scope ?? 'game';
+  const toScope = toInvConfig?.scope ?? "game";
   const resolvedToPlayerId =
-    toScope === 'player' ? (toPlayerId ?? ctx.targetPlayerId ?? ctx.actorId) : undefined;
-  const destInv = getInventory(session, toInventoryId, resolvedToPlayerId ?? undefined);
+    toScope === "player"
+      ? (toPlayerId ?? ctx.targetPlayerId ?? ctx.actorId)
+      : undefined;
+  const destInv = getInventory(
+    session,
+    toInventoryId,
+    resolvedToPlayerId ?? undefined,
+  );
 
   if (!destInv) {
     throw new Error(
       `Destination inventory "${toInventoryId}"` +
-        (resolvedToPlayerId ? ` for player "${resolvedToPlayerId}"` : '') +
-        ' not found in session state',
+        (resolvedToPlayerId ? ` for player "${resolvedToPlayerId}"` : "") +
+        " not found in session state",
     );
   }
 
@@ -106,6 +118,8 @@ export async function executeMove(
 
   // 7. Move each piece
   for (const pieceId of pieceIds) {
+    // Capture from-position before removal so hidden-piece clients know which slot vacated.
+    const fromPosition = sourceInv?.positionOf(pieceId);
     // Remove from source (if found there — it may already be absent for game:unassigned)
     if (sourceInv?.has(pieceId)) {
       sourceInv.remove(pieceId);
@@ -116,8 +130,30 @@ export async function executeMove(
 
     // Update piece ownerId when crossing into a player-scoped inventory
     const piece = session.state.gamepieces[pieceId];
-    if (piece && toScope === 'player' && resolvedToPlayerId) {
+    if (piece && toScope === "player" && resolvedToPlayerId) {
       piece.ownerId = resolvedToPlayerId;
     }
+
+    session.events.emit({
+      kind: "state:change",
+      change: {
+        kind: "piece:moved",
+        pieceId,
+        from: {
+          inventory: {
+            inventoryId: fromInventoryId,
+            ownerId: resolvedFromPlayerId ?? undefined,
+          },
+          position: fromPosition,
+        },
+        to: {
+          inventory: {
+            inventoryId: toInventoryId,
+            ownerId: resolvedToPlayerId ?? undefined,
+          },
+          position: placement,
+        },
+      },
+    });
   }
 }

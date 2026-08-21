@@ -1,5 +1,5 @@
-import { Logger } from '#chaincraft/logger.js';
-import { EffectBus } from '#chaincraft/effects/effect-bus.js'
+import { Logger } from "#chaincraft/logger.js";
+import { EffectBus } from "#chaincraft/effects/effect-bus.js";
 // ---------------------------------------------------------------------------
 // Entity reference types
 // ---------------------------------------------------------------------------
@@ -8,7 +8,7 @@ import { EffectBus } from '#chaincraft/effects/effect-bus.js'
  * The kind of entity a ref-typed property references.
  * Matches the gamedef PropertyTypeSchema entity-ref kinds directly.
  */
-export type RefType = 'player-id' | 'player-role-id' | 'gamepiece-id';
+export type RefType = "player-id" | "player-role-id" | "gamepiece-id";
 
 /**
  * Branded string types for entity IDs — plain strings at runtime,
@@ -27,30 +27,32 @@ export type GamepieceId = string & { readonly [__gamepieceIdBrand]: void };
 // Inventory data (serializable state)
 // ---------------------------------------------------------------------------
 
-export type InventoryStructure = 'none' | 'stack' | 'line' | 'grid' | 'graph';
+export type InventoryStructure = "none" | "stack" | "line" | "grid" | "graph";
 
 export type BagInventoryData = {
-  structure: 'none';
+  structure: "none";
   pieceIds: string[];
 };
 
 export type StackInventoryData = {
-  structure: 'stack';
+  structure: "stack";
   pieceIds: string[];
 };
 
 export type LineInventoryData = {
-  structure: 'line';
+  structure: "line";
+  length?: number; // fixed-length line; add() throws when all slots are filled
   slots: (string | null)[];
 };
 
 export type GridInventoryData = {
-  structure: 'grid';
-  cells: Record<string, string | null>; // key: "row:col"
+  structure: "grid";
+  order: "row-major" | "col-major";
+  cells: Record<string, string | null>; // key: "row:col", insertion order determines fill sequence
 };
 
 export type GraphInventoryData = {
-  structure: 'graph';
+  structure: "graph";
   nodes: Record<string, string | null>; // key: nodeId
 };
 
@@ -66,19 +68,24 @@ export type InventoryData =
 // ---------------------------------------------------------------------------
 
 export type InventoryPosition =
-  | { kind: 'stack-top' }
-  | { kind: 'stack-bottom' }
-  | { kind: 'stack-index'; index: number }
-  | { kind: 'line-index'; index: number }
-  | { kind: 'grid-cell'; row: string | number; col: string | number }
-  | { kind: 'graph-node'; nodeId: string };
+  | { kind: "stack-top" }
+  | { kind: "stack-bottom" }
+  | { kind: "stack-index"; index: number }
+  | { kind: "line-index"; index: number }
+  | { kind: "grid-cell"; row: string | number; col: string | number }
+  | { kind: "graph-node"; nodeId: string };
 
 // ---------------------------------------------------------------------------
 // Selection mode (for query operations — what the Inventory interface uses)
 // 'player-chooses' is handled by the flow runner / IO adapter layer, not here.
 // ---------------------------------------------------------------------------
 
-export type SelectionMode = 'top' | 'bottom' | 'random' | 'all' | { id: string };
+export type SelectionMode =
+  | "top"
+  | "bottom"
+  | "random"
+  | "all"
+  | { id: string };
 
 // ---------------------------------------------------------------------------
 // Gamepiece
@@ -88,11 +95,11 @@ export type Gamepiece = {
   typeId: string;
   ownerId: string;
   properties: Record<string, unknown>;
-  faceUp: boolean;       // meaningful when type has hasFaceState: true
-  faceValue?: number;    // meaningful when type has faceCount (dice); range [1, faceCount]
+  faceUp: boolean; // meaningful when type has hasFaceState: true
+  faceValue?: number; // meaningful when type has faceCount (dice); range [1, faceCount]
   orientationIndex?: number; // meaningful when type has orientationCount; range [0, orientationCount)
-  exhausted: boolean;    // meaningful when type has exhaustible: true
-  visibleTo: string[] | 'all' | null; // null = fall back to inventory default
+  exhausted: boolean; // meaningful when type has exhaustible: true
+  visibleTo: string[] | "all" | null; // null = fall back to inventory default
   inventories?: Record<string, InventoryData>; // piece-scoped inventories
 };
 
@@ -131,17 +138,17 @@ declare const __brand: unique symbol;
 
 /** Base for generated game-scoped state interfaces (e.g., RPSGameState). */
 export interface GameStateBase {
-  readonly [__brand]?: 'GameState';
+  readonly [__brand]?: "GameState";
 }
 
 /** Base for generated player-scoped state interfaces (e.g., RPSPlayerState). */
 export interface PlayerStateBase {
-  readonly [__brand]?: 'PlayerState';
+  readonly [__brand]?: "PlayerState";
 }
 
 /** Base for generated piece-scoped state interfaces (e.g., WeaponProperties). */
 export interface GamepieceStateBase {
-  readonly [__brand]?: 'GamepieceState';
+  readonly [__brand]?: "GamepieceState";
 }
 
 // ---------------------------------------------------------------------------
@@ -179,7 +186,7 @@ export interface RngProvider {
  */
 export type Predicate = (session: GameSession, actorId?: string) => boolean;
 
-import type { GameEventEmitter } from '#chaincraft/events/emitter.js';
+import type { GameEventEmitter } from "#chaincraft/events/emitter.js";
 
 export type GameSession = {
   readonly gameId: string;
@@ -190,14 +197,17 @@ export type GameSession = {
   readonly outbox: Message[];
   readonly rng: RngProvider;
   readonly events: GameEventEmitter;
-  /** 
-   * Effect bus for named-effect intercept (passives/reactives). 
+  /**
+   * Effect bus for named-effect intercept (passives/reactives).
    * Writable for testing only; production code should use the bus on the GameSession.
    */
   bus?: EffectBus;
   readonly logger?: Logger;
   /** Internal cache — do not access directly. Use getInventory(). */
-  readonly _inventoryCache: Map<string, import('./inventory/Inventory.js').Inventory>;
+  readonly _inventoryCache: Map<
+    string,
+    import("./inventory/Inventory.js").Inventory
+  >;
 };
 
 export type Message = {
@@ -226,11 +236,13 @@ export type Message = {
 
 export type InventoryConfig = {
   structure: InventoryStructure;
-  scope: 'game' | 'player' | 'team' | 'piece';
-  visibility: 'always' | 'revealed' | 'owner' | 'count-only' | 'never';
+  scope: "game" | "player" | "team" | "piece";
+  visibility: "always" | "revealed" | "owner" | "count-only" | "never";
   accepts: string[];
   capacity?: { min?: number; max?: number };
   gridDimensions?: { rows: number; columns: number };
+  gridOrder?: "row-major" | "col-major";
+  lineLength?: number;
   role?: string;
 };
 
@@ -241,7 +253,11 @@ export type InventoryConfig = {
  *   owner    — visible only to the player who owns the piece
  *   never    — engine-tracked only; never shown to any player (e.g. internal flags)
  */
-export type GamepiecePropertyVisibility = 'always' | 'revealed' | 'owner' | 'never';
+export type GamepiecePropertyVisibility =
+  | "always"
+  | "revealed"
+  | "owner"
+  | "never";
 
 /**
  * Visibility for player- and game-scoped state properties.
@@ -250,7 +266,11 @@ export type GamepiecePropertyVisibility = 'always' | 'revealed' | 'owner' | 'nev
  *   same-role — visible to players who share a role (e.g. team-scoped collaboration state)
  *   never     — engine-tracked only; never shown to any player
  */
-export type StatePropertyVisibility = 'public' | 'private' | 'same-role' | 'never';
+export type StatePropertyVisibility =
+  | "public"
+  | "private"
+  | "same-role"
+  | "never";
 
 export type PropertyConfig = {
   mutable: boolean;
@@ -282,11 +302,11 @@ export type ComputedPropertyConfig = {
   inventory: string;
   ofType?: string;
   property?: string;
-  aggregate: 'count' | 'exists' | 'sum' | 'min' | 'max';
+  aggregate: "count" | "exists" | "sum" | "min" | "max";
 };
 
 export type GamepieceTypeConfig = {
-  category: 'card' | 'token' | 'dice' | 'tile' | 'board';
+  category: "card" | "token" | "dice" | "tile" | "board";
   properties: Record<string, GamepiecePropertyConfig>;
   hasFaceState?: boolean;
   exhaustible?: boolean;
@@ -295,7 +315,7 @@ export type GamepieceTypeConfig = {
   inventorySlots?: string[];
 };
 
-export type RoleVisibility = 'public' | 'hidden';
+export type RoleVisibility = "public" | "hidden";
 
 export type GameConfig = {
   inventories: Record<string, InventoryConfig>;
@@ -319,6 +339,10 @@ export type EffectContext<T = any> = {
   actorId: string | null;
   /** The player this effect iteration is currently targeting (set by executors that resolve PlayerTarget). */
   targetPlayerId?: string;
+  /** The piece that triggered this effect (e.g. attacking creature); used for source.property.<id> refs. */
+  sourcePieceId?: string;
+  /** The piece currently being targeted in an update/iterate loop; used for target.property.<id> refs. */
+  targetPieceId?: string;
   /** Action inputs from player submission, keyed by input id. */
   actionInputs: Record<string, unknown>;
   /** Resolved effect definition from the spec (the YAML node). */
@@ -330,7 +354,7 @@ export type EffectContext<T = any> = {
  * CompiledGameModule.effects for all deterministic effect kinds.
  */
 export type EffectExecutor = {
-  readonly kind: 'effect-executor';
+  readonly kind: "effect-executor";
   execute: (session: GameSession, ctx: EffectContext) => Promise<void>;
 };
 
@@ -341,8 +365,8 @@ export type EffectExecutor = {
  * group.collected[requestId] before consume() is called.
  */
 export type SuspensionRequest =
-  | { kind: 'llm' }
-  | { kind: 'external-data'; source: string; query: Record<string, unknown> };
+  | { kind: "llm" }
+  | { kind: "external-data"; source: string; query: Record<string, unknown> };
 
 /**
  * A two-phase effect registration for effects that require a system
@@ -356,9 +380,13 @@ export type SuspensionRequest =
  * the result to session state deterministically.
  */
 export type SuspendingEffectExecutor = {
-  readonly kind: 'suspending-effect-executor';
+  readonly kind: "suspending-effect-executor";
   buildRequest(session: GameSession, ctx: EffectContext): SuspensionRequest;
-  consume(session: GameSession, ctx: EffectContext, result: unknown): Promise<void>;
+  consume(
+    session: GameSession,
+    ctx: EffectContext,
+    result: unknown,
+  ): Promise<void>;
 };
 
 /**
@@ -371,13 +399,10 @@ export type EffectRegistration = EffectExecutor | SuspendingEffectExecutor;
 // Flow tree (mirrors gamedef flow module — compiled from YAML)
 // ---------------------------------------------------------------------------
 
-export type FlowNode =
-  | GameFlowNode
-  | TurnFlowNode
-  | LoopFlowNode;
+export type FlowNode = GameFlowNode | TurnFlowNode | LoopFlowNode;
 
 export type GameFlowNode = {
-  kind: 'game';
+  kind: "game";
   id: string;
   hooks?: FlowHooks;
   children: FlowNode[];
@@ -396,7 +421,7 @@ export type GameFlowNode = {
  */
 export type TurnOrdering =
   | {
-      kind: 'round-robin';
+      kind: "round-robin";
       /** State path to the player ID who acts first. Defaults to session.players[0]. */
       startPath?: string;
       /**
@@ -410,18 +435,20 @@ export type TurnOrdering =
       /** Sort eligible players by a property or inventory value before applying direction. */
       sort?: {
         by: { playerProperty: string } | { playerInventory: string };
-        order: 'ascending' | 'descending';
+        order: "ascending" | "descending";
       };
     }
-  | { kind: 'simultaneous'; roleIds?: string[] }
+  | { kind: "simultaneous"; roleIds?: string[] }
   | {
-      kind: 'single';
-      actor: { kind: 'state-ref'; path: string } | { kind: 'roles'; roleIds: string[] };
+      kind: "single";
+      actor:
+        | { kind: "state-ref"; path: string }
+        | { kind: "roles"; roleIds: string[] };
     }
-  | { kind: 'custom'; resolverId: string };
+  | { kind: "custom"; resolverId: string };
 
 export type TurnFlowNode = {
-  kind: 'turn';
+  kind: "turn";
   id: string;
   label: string;
   ordering: TurnOrdering;
@@ -436,7 +463,7 @@ export type TurnFlowNode = {
 };
 
 export type LoopFlowNode = {
-  kind: 'loop';
+  kind: "loop";
   id: string;
   label: string;
   /**
@@ -479,7 +506,7 @@ export type Grammar =
 
 /** Player must take exactly this one action (no choice). */
 export type ActionGrammar = {
-  kind: 'action';
+  kind: "action";
   ref: string; // action id
 };
 
@@ -488,14 +515,14 @@ export type ActionGrammar = {
  * If passable is true, passing (taking no action) is also legal.
  */
 export type ChoiceGrammar = {
-  kind: 'choice';
+  kind: "choice";
   actions: string[]; // available action IDs
   passable?: boolean;
 };
 
 /** Player executes these actions in order (each is mandatory, no choice). */
 export type SequenceGrammar = {
-  kind: 'sequence';
+  kind: "sequence";
   actions: string[];
 };
 
@@ -510,11 +537,11 @@ export type SequenceGrammar = {
  *   In a simultaneous node, the phase exits when ALL actors have passed.
  */
 export type RepeatGrammar = {
-  kind: 'repeat';
+  kind: "repeat";
   /** Inner grammar to repeat each iteration. */
   body: Grammar;
   /** Repeat exactly N times, up to a range, or until player passes. */
-  count: number | { min?: number; max?: number } | 'until-pass';
+  count: number | { min?: number; max?: number } | "until-pass";
 };
 
 // ---------------------------------------------------------------------------
@@ -524,48 +551,48 @@ export type RepeatGrammar = {
 // --- Action input type variants (discriminated on `kind`) ---
 
 export type NumberInputType = {
-  readonly kind: 'number';
+  readonly kind: "number";
   readonly min?: number;
   readonly max?: number;
   /** If true, only whole numbers accepted. Defaults to true. */
   readonly integer?: boolean;
 };
 
-export type StringInputType = { readonly kind: 'string' };
+export type StringInputType = { readonly kind: "string" };
 
-export type BooleanInputType = { readonly kind: 'boolean' };
+export type BooleanInputType = { readonly kind: "boolean" };
 
 export type EnumInputType = {
-  readonly kind: 'enum';
+  readonly kind: "enum";
   readonly values: string[];
 };
 
-export type EffectOriginatorInputType = { readonly kind: 'effect-originator' };
+export type EffectOriginatorInputType = { readonly kind: "effect-originator" };
 
 export type TriggerInputType = {
-  readonly kind: 'trigger-input';
+  readonly kind: "trigger-input";
   readonly inputId: string;
 };
 
 export type GamepieceSelectInputType = {
-  readonly kind: 'gamepiece-select';
+  readonly kind: "gamepiece-select";
   readonly inventory: string;
   readonly ofType?: string;
   readonly count?: number;
-  readonly fromPlayer?: 'self' | { param: string };
+  readonly fromPlayer?: "self" | { param: string };
   readonly filter?: (session: GameSession, pieceId: string) => boolean;
 };
 
 export type PlayerSelectInputType = {
-  readonly kind: 'player-select';
+  readonly kind: "player-select";
   readonly excludeSelf?: boolean;
   readonly filter?: (session: GameSession, playerId: string) => boolean;
 };
 
 export type InventoryPositionInputType = {
-  readonly kind: 'inventory-position';
+  readonly kind: "inventory-position";
   readonly inventory: string;
-  readonly fromPlayer?: 'self' | { param: string };
+  readonly fromPlayer?: "self" | { param: string };
 };
 
 export type ActionInputType =
@@ -602,7 +629,10 @@ export type ActionDef = {
 // ---------------------------------------------------------------------------
 
 /** Information about the number of players a game supports. */
-export interface PlayerCount { min: number; max: number };
+export interface PlayerCount {
+  min: number;
+  max: number;
+}
 
 export interface CompiledGameModule {
   readonly specId: string;
@@ -622,4 +652,4 @@ export interface CompiledGameModule {
 
   /** Action definitions, keyed by action id. */
   readonly actions: Record<string, ActionDef>;
-};
+}

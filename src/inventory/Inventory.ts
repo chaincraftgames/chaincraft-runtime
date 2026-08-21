@@ -19,6 +19,9 @@ export interface Inventory {
   /** Add a piece at the given placement (structure-specific default if omitted). */
   add(pieceId: string, placement?: InventoryPosition): void;
 
+  /** Return the current position of a piece, or undefined for unordered inventories. */
+  positionOf(pieceId: string): InventoryPosition | undefined;
+
   /** Remove a piece. Throws if not present. */
   remove(pieceId: string): void;
 

@@ -443,7 +443,7 @@ describe('projectStateForPlayer', () => {
               ...makeState().players.alice,
               inventories: {
                 ...makeState().players.alice.inventories,
-                privateboard: { structure: 'grid', cells: { '0:0': 't1', '0:1': null, '1:0': null } },
+                privateboard: { structure: 'grid', order: 'row-major', cells: { '0:0': 't1', '0:1': null, '1:0': null } },
               },
             },
           },

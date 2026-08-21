@@ -47,6 +47,11 @@ export class StackInventory implements Inventory {
     }
   }
 
+  positionOf(pieceId: string): InventoryPosition | undefined {
+    const idx = this.data.pieceIds.indexOf(pieceId);
+    return idx === -1 ? undefined : { kind: 'stack-index', index: idx };
+  }
+
   remove(pieceId: string): void {
     const { pieceIds } = this.data;
     const idx = pieceIds.indexOf(pieceId);

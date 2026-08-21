@@ -10,14 +10,29 @@
 // which player(s) are affected. Defaults to the acting player when omitted.
 // ---------------------------------------------------------------------------
 
-import type { GameSession, EffectContext, PropertyConfig } from '#chaincraft/types.js';
-import { resolveValue, resolvePieceRef } from '#chaincraft/effects/resolve-value.js';
-import type { PropertyValue, PieceRef } from '#chaincraft/effects/resolve-value.js';
-import { resolvePlayerTarget } from '#chaincraft/effects/player-target.js';
-import type { PlayerTarget } from '#chaincraft/effects/player-target.js';
-import { StateWriteEvent } from './effect-bus.js';
+import type {
+  GameSession,
+  EffectContext,
+  PropertyConfig,
+} from "#chaincraft/types.js";
+import {
+  resolveValue,
+  resolvePieceRef,
+} from "#chaincraft/effects/resolve-value.js";
+import type {
+  PropertyValue,
+  PieceRef,
+} from "#chaincraft/effects/resolve-value.js";
+import { resolvePlayerTarget } from "#chaincraft/effects/player-target.js";
+import type { PlayerTarget } from "#chaincraft/effects/player-target.js";
+import { StateWriteEvent } from "#chaincraft/effects/effect-bus.js";
 
-type SetStateEffectDef = { path: string; value: PropertyValue; target?: PlayerTarget; source?: PieceRef };
+type SetStateEffectDef = {
+  path: string;
+  value: PropertyValue;
+  target?: PlayerTarget;
+  source?: PieceRef;
+};
 
 /**
  * Validate that a value written to a ref-typed property is a known entity ID.
@@ -29,23 +44,23 @@ function validateRefValue(
   session: GameSession,
   path: string,
 ): void {
-  if (!config?.refType || typeof value !== 'string') return;
+  if (!config?.refType || typeof value !== "string") return;
   switch (config.refType) {
-    case 'player-id':
+    case "player-id":
       if (!session.state.players[value]) {
         throw new Error(
-          `set-state "${path}": "${value}" is not a valid player ID (known: ${Object.keys(session.state.players).join(', ')})`,
+          `set-state "${path}": "${value}" is not a valid player ID (known: ${Object.keys(session.state.players).join(", ")})`,
         );
       }
       break;
-    case 'player-role-id':
+    case "player-role-id":
       if (session.config.roles && !session.config.roles.includes(value)) {
         throw new Error(
-          `set-state "${path}": "${value}" is not a valid player role ID (known: ${session.config.roles.join(', ')})`,
+          `set-state "${path}": "${value}" is not a valid player role ID (known: ${session.config.roles.join(", ")})`,
         );
       }
       break;
-    case 'gamepiece-id':
+    case "gamepiece-id":
       if (!session.state.gamepieces[value]) {
         throw new Error(
           `set-state "${path}": "${value}" is not a valid gamepiece ID`,
@@ -61,20 +76,32 @@ export async function executeSetState(
 ): Promise<void> {
   const { path, value: pv, target, source } = ctx.effectDef;
 
-  const segments = path.split('.');
+  const segments = path.split(".");
 
   // Resolve source piece if specified
-  const sourcePieceId = source ? resolvePieceRef(ctx, source) : ctx.sourcePieceId;
+  const sourcePieceId = source
+    ? resolvePieceRef(ctx, source)
+    : ctx.sourcePieceId;
   const valueCtx = sourcePieceId ? { ...ctx, sourcePieceId } : ctx;
 
-  if (segments[0] === 'game' && segments[1] === 'property') {
+  if (segments[0] === "game" && segments[1] === "property") {
     const key = segments[2];
     const config = session.config.gameProperties[key];
     const current = session.state.gameProperties[key];
     let resolved = resolveValue(pv, current, session, valueCtx, config);
     validateRefValue(resolved, config, session, path);
     session.state.gameProperties[key] = resolved;
-  } else if (segments[0] === 'player' && segments[1] === 'property') {
+    session.events.emit({
+      kind: "state:change",
+      change: {
+        kind: "state:property-changed",
+        scope: "game",
+        property: key,
+        oldValue: current,
+        newValue: resolved,
+      },
+    });
+  } else if (segments[0] === "player" && segments[1] === "property") {
     const key = segments[2];
     const playerIds = resolvePlayerTarget(session, ctx, target);
 
@@ -86,23 +113,24 @@ export async function executeSetState(
       const config = session.config.playerProperties[key];
       const current = player.properties[key];
       let resolved = resolveValue(
-        pv, 
-        current, 
-        session, 
-        { ...valueCtx, targetPlayerId: playerId }, 
-        config
+        pv,
+        current,
+        session,
+        { ...valueCtx, targetPlayerId: playerId },
+        config,
       );
       validateRefValue(resolved, config, session, path);
       if (
-        ctx.actorId && 
-        typeof current === 'number' && typeof resolved == 'number'
+        ctx.actorId &&
+        typeof current === "number" &&
+        typeof resolved == "number"
       ) {
-        // Set state is adjustable if directed at a player, so create a pending 
+        // Set state is adjustable if directed at a player, so create a pending
         // effect and emit before.
         let finalValue: number = resolved;
         const stateWriteEvent = {
-          kind: 'state-write' as const,
-          direction: resolved >= current ? 'increase' : 'decrease',
+          kind: "state-write" as const,
+          direction: resolved >= current ? "increase" : "decrease",
           path,
           resolvedValue: resolved,
           targetId: playerId,
@@ -111,31 +139,56 @@ export async function executeSetState(
         const pending = session.bus?.emitBeforeStateWrite(stateWriteEvent);
         if (pending?.cancelled) {
           session.logger?.info(
-            { path, targetId: playerId }, 
-            'state-write cancelled by passive'
-          );  
+            { path, targetId: playerId },
+            "state-write cancelled by passive",
+          );
           // If the pending effect was cancelled, skip the write.
           continue;
         }
-        if (pending?.adjustedValue !== undefined && pending.adjustedValue !== pending.resolvedValue) {
+        if (
+          pending?.adjustedValue !== undefined &&
+          pending.adjustedValue !== pending.resolvedValue
+        ) {
           finalValue = pending.adjustedValue as number;
           session.logger?.info(
-            { path, targetId: playerId, resolvedValue: finalValue }, 
-            'state-write adjusted by passive'
+            { path, targetId: playerId, resolvedValue: finalValue },
+            "state-write adjusted by passive",
           );
         }
         player.properties[key] = finalValue;
         session.bus?.emitAfterStateWrite({
           ...stateWriteEvent,
-          resolvedValue: finalValue
+          resolvedValue: finalValue,
         } satisfies StateWriteEvent);
+        session.events.emit({
+          kind: "state:change",
+          change: {
+            kind: "state:property-changed",
+            scope: "player",
+            playerId,
+            property: key,
+            oldValue: current,
+            newValue: finalValue,
+          },
+        });
       } else {
         player.properties[key] = resolved;
+        session.events.emit({
+          kind: "state:change",
+          change: {
+            kind: "state:property-changed",
+            scope: "player",
+            playerId,
+            property: key,
+            oldValue: current,
+            newValue: resolved,
+          },
+        });
       }
     }
   } else {
-    throw new Error(`Invalid set-state path: "${path}". Expected game.property.<id> or player.property.<id>`);
+    throw new Error(
+      `Invalid set-state path: "${path}". Expected game.property.<id> or player.property.<id>`,
+    );
   }
 }
-
-         

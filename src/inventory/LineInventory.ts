@@ -1,31 +1,31 @@
-import type { 
-  LineInventoryData, 
-  InventoryPosition, 
-  RngProvider, 
-  SelectionMode 
-} from '#chaincraft/types.js';
-import type { Inventory } from '#chaincraft/inventory/Inventory.js';
-import { pickRandom, fisherYatesShuffle } from '#chaincraft/inventory/utils.js';
+import type {
+  LineInventoryData,
+  InventoryPosition,
+  RngProvider,
+  SelectionMode,
+} from "#chaincraft/types.js";
+import type { Inventory } from "#chaincraft/inventory/Inventory.js";
+import { pickRandom, fisherYatesShuffle } from "#chaincraft/inventory/utils.js";
 
 export class LineInventory implements Inventory {
-  readonly structure = 'line' as const;
+  readonly structure = "line" as const;
 
   constructor(private readonly data: LineInventoryData) {}
 
   select(mode: SelectionMode, count: number = 1, rng?: RngProvider): string[] {
-    if (typeof mode === 'object') {
+    if (typeof mode === "object") {
       return this.data.slots.includes(mode.id) ? [mode.id] : [];
     }
     const occupied = this.getOccupied();
     switch (mode) {
-      case 'all':
+      case "all":
         return occupied;
-      case 'top':
+      case "top":
         return occupied.slice(0, count);
-      case 'bottom':
+      case "bottom":
         return occupied.slice(-count);
-      case 'random':
-        if (!rng) throw new Error('RNG required for random selection');
+      case "random":
+        if (!rng) throw new Error("RNG required for random selection");
         return pickRandom(occupied, count, rng);
     }
   }
@@ -35,29 +35,40 @@ export class LineInventory implements Inventory {
   }
 
   count(): number {
-    return this.data.slots.filter(s => s !== null).length;
+    return this.data.slots.filter((s) => s !== null).length;
   }
 
   add(pieceId: string, placement?: InventoryPosition): void {
-    if (placement?.kind === 'line-index') {
+    if (placement?.kind === "line-index") {
+      if (this.data.length !== undefined && placement.index >= this.data.length)
+        throw new Error(
+          `line-index ${placement.index} out of bounds (length ${this.data.length})`,
+        );
       while (this.data.slots.length <= placement.index) {
         this.data.slots.push(null);
       }
       this.data.slots[placement.index] = pieceId;
     } else {
-      // Default: first empty slot, or append
       const emptyIdx = this.data.slots.indexOf(null);
       if (emptyIdx !== -1) {
         this.data.slots[emptyIdx] = pieceId;
+      } else if (this.data.length !== undefined) {
+        throw new Error(`line inventory is full (length ${this.data.length})`);
       } else {
         this.data.slots.push(pieceId);
       }
     }
   }
 
+  positionOf(pieceId: string): InventoryPosition | undefined {
+    const idx = this.data.slots.indexOf(pieceId);
+    return idx === -1 ? undefined : { kind: "line-index", index: idx };
+  }
+
   remove(pieceId: string): void {
     const idx = this.data.slots.indexOf(pieceId);
-    if (idx === -1) throw new Error(`Piece ${pieceId} not found in line inventory`);
+    if (idx === -1)
+      throw new Error(`Piece ${pieceId} not found in line inventory`);
     this.data.slots[idx] = null;
   }
 

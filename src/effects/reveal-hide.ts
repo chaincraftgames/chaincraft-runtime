@@ -9,12 +9,12 @@
 //          cancelling any active reveal override.
 // ---------------------------------------------------------------------------
 
-import type { GameSession, EffectContext } from '#chaincraft/types.js';
-import { selectGamepieces } from './gamepiece-selector.js';
-import type { GamepieceSelector } from './gamepiece-selector.js';
+import type { GameSession, EffectContext } from "#chaincraft/types.js";
+import { selectGamepieces } from "#chaincraft/effects/gamepiece-selector.js";
+import type { GamepieceSelector } from "#chaincraft/effects/gamepiece-selector.js";
 
 type RevealEffectDef = { pieces: GamepieceSelector; to: string };
-type HideEffectDef   = { pieces: GamepieceSelector };
+type HideEffectDef = { pieces: GamepieceSelector };
 
 /**
  * Resolve a MessageRecipient string to the concrete visibleTo value.
@@ -28,20 +28,22 @@ function resolveAudience(
   to: string,
   session: GameSession,
   ctx: EffectContext,
-): string[] | 'all' {
-  if (to === 'all') return 'all';
+): string[] | "all" {
+  if (to === "all") return "all";
 
-  if (to === 'actor') {
+  if (to === "actor") {
     return ctx.actorId ? [ctx.actorId] : [];
   }
 
-  if (to === 'opponents') {
+  if (to === "opponents") {
     return session.players.filter((p) => p !== ctx.actorId);
   }
 
-  if (to.startsWith('role:')) {
+  if (to.startsWith("role:")) {
     const roleId = to.slice(5);
-    return session.players.filter((p) => session.state.players[p]?.roles.includes(roleId));
+    return session.players.filter((p) =>
+      session.state.players[p]?.roles.includes(roleId),
+    );
   }
 
   // Specific player ID
@@ -60,6 +62,10 @@ export async function executeReveal(
     const piece = session.state.gamepieces[pieceId];
     if (!piece) continue;
     piece.visibleTo = audience;
+    session.events.emit({
+      kind: "state:change",
+      change: { kind: "piece:revealed", pieceId, visibleTo: audience },
+    });
   }
 }
 
@@ -74,5 +80,9 @@ export async function executeHide(
     const piece = session.state.gamepieces[pieceId];
     if (!piece) continue;
     piece.visibleTo = null;
+    session.events.emit({
+      kind: "state:change",
+      change: { kind: "piece:hidden", pieceId },
+    });
   }
 }
