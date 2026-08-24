@@ -206,6 +206,10 @@ export class GameController {
   // Private
   // -------------------------------------------------------------------------
 
+  /** 
+   * Game update loop.  It drains the outbox, resolves system suspensions, and 
+   * fires events.   
+   */
   private async settle(result: StepResult): Promise<void> {
     this.drainOutbox();
 
@@ -255,6 +259,8 @@ export class GameController {
     if (result.kind === "complete") {
       this.#pendingPrompts.clear();
       this.#outcome = result.outcome;
+      // Flush any remaining state changes before firing onComplete.
+      this.#flushStateChanges();
       this.execState!.session.events.emit({
         kind: "game:complete",
         outcome: result.outcome,
