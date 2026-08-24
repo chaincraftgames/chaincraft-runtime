@@ -50,10 +50,10 @@ export const HIGH_CARD_CARD_VALUES = [1, 2, 3, 4, 5, 6] as const;
 
 const config: GameConfig = {
   inventories: {
-    deck: { structure: 'stack', scope: 'game', visibility: 'never', accepts: ['card'] },
-    hand: { structure: 'none', scope: 'player', visibility: 'owner', accepts: ['card'] },
-    table: { structure: 'none', scope: 'game', visibility: 'always', accepts: ['card'] },
-    discard: { structure: 'none', scope: 'game', visibility: 'always', accepts: ['card'] },
+    deck: { structure: 'stack', scope: 'game', visibility: 'never', countVisibility: 'always', accepts: ['card'] },
+    hand: { structure: 'none', scope: 'player', visibility: 'owner', countVisibility: 'always', accepts: ['card'] },
+    table: { structure: 'none', scope: 'game', visibility: 'always', countVisibility: 'always', accepts: ['card'] },
+    discard: { structure: 'none', scope: 'game', visibility: 'always', countVisibility: 'always', accepts: ['card'] },
   },
   gamepieceTypes: {
     card: {

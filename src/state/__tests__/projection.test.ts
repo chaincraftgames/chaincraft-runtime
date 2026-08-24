@@ -10,11 +10,11 @@ import { GameEventEmitter } from '#chaincraft/events/emitter.js';
 function makeConfig(overrides?: Partial<GameConfig>): GameConfig {
   return {
     inventories: {
-      deck: { structure: 'stack', scope: 'game', visibility: 'never', accepts: ['card'] },
-      hand: { structure: 'none', scope: 'player', visibility: 'owner', accepts: ['card'] },
-      discard: { structure: 'stack', scope: 'game', visibility: 'always', accepts: ['card'] },
-      field: { structure: 'none', scope: 'player', visibility: 'always', accepts: ['token'] },
-      secret: { structure: 'none', scope: 'game', visibility: 'count-only', accepts: ['card'] },
+      deck: { structure: 'stack', scope: 'game', visibility: 'never', countVisibility: 'never', accepts: ['card'] },
+      hand: { structure: 'none', scope: 'player', visibility: 'owner', countVisibility: 'always', accepts: ['card'] },
+      discard: { structure: 'stack', scope: 'game', visibility: 'always', countVisibility: 'always', accepts: ['card'] },
+      field: { structure: 'none', scope: 'player', visibility: 'always', countVisibility: 'always', accepts: ['token'] },
+      secret: { structure: 'none', scope: 'game', visibility: 'never', countVisibility: 'always', accepts: ['card'] },
     },
     gamepieceTypes: {
       card: {
@@ -170,9 +170,10 @@ describe('projectStateForPlayer', () => {
       expect(view.gameInventories['discard']).toEqual({ structure: 'stack', pieceIds: ['c4'] });
     });
 
-    it('shows count-only for "count-only" inventories', () => {
+    it('shows count-only for inventories with hidden pieces but visible count', () => {
       const session = makeSession();
       const view = projectStateForPlayer(session, 'alice');
+      // secret: visibility=never, countVisibility=always
       expect(view.gameInventories['secret']).toEqual({ redacted: 'count-only', count: 2 });
     });
 
@@ -214,9 +215,10 @@ describe('projectStateForPlayer', () => {
       expect(view.gamepieces['c3']).toBeUndefined();
     });
 
-    it('omits pieces in "count-only" inventories', () => {
+    it('omits pieces in inventories with visibility: never', () => {
       const session = makeSession();
       const view = projectStateForPlayer(session, 'alice');
+      // secret has visibility=never (countVisibility=always), but piece identity is hidden
       expect(view.gamepieces['c5']).toBeUndefined();
       expect(view.gamepieces['c6']).toBeUndefined();
     });
@@ -412,7 +414,7 @@ describe('projectStateForPlayer', () => {
         config: {
           inventories: {
             ...makeConfig().inventories,
-            board: { structure: 'line', scope: 'game', visibility: 'count-only', accepts: ['token'] },
+            board: { structure: 'line', scope: 'game', visibility: 'never', countVisibility: 'always', accepts: ['token'] },
           },
         },
         state: {
@@ -432,7 +434,7 @@ describe('projectStateForPlayer', () => {
         config: {
           inventories: {
             ...makeConfig().inventories,
-            privateboard: { structure: 'grid', scope: 'player', visibility: 'owner', accepts: ['token'] },
+            privateboard: { structure: 'grid', scope: 'player', visibility: 'owner', countVisibility: 'always', accepts: ['token'] },
           },
         },
         state: {
@@ -699,6 +701,84 @@ describe('projectStateForPlayer', () => {
       const view = projectStateForPlayer(session, 'bob');
       // bob can't see c7 at all (it's in alice's owner-only hand)
       expect(view.gamepieces['c7']).toBeUndefined();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // countVisibility
+  // -------------------------------------------------------------------------
+
+  describe('countVisibility', () => {
+    it('hides count when countVisibility is never', () => {
+      const session = makeSession({
+        config: {
+          inventories: {
+            ...makeConfig().inventories,
+            vault: { structure: 'none', scope: 'player', visibility: 'owner', countVisibility: 'never', accepts: ['card'] },
+          },
+        },
+        state: {
+          ...makeState(),
+          players: {
+            ...makeState().players,
+            alice: {
+              ...makeState().players.alice,
+              inventories: {
+                ...makeState().players.alice.inventories,
+                vault: { structure: 'none', pieceIds: ['c5', 'c6'] },
+              },
+            },
+            bob: {
+              ...makeState().players.bob,
+              inventories: {
+                ...makeState().players.bob.inventories,
+                vault: { structure: 'none', pieceIds: [] },
+              },
+            },
+          },
+        },
+      });
+      const bobView = projectStateForPlayer(session, 'bob');
+      expect(bobView.players['alice'].inventories['vault']).toEqual({ redacted: 'hidden' });
+    });
+
+    it('shows count to owner when countVisibility is owner', () => {
+      const session = makeSession({
+        config: {
+          inventories: {
+            ...makeConfig().inventories,
+            satchel: { structure: 'none', scope: 'player', visibility: 'owner', countVisibility: 'owner', accepts: ['card'] },
+          },
+        },
+        state: {
+          ...makeState(),
+          players: {
+            ...makeState().players,
+            alice: {
+              ...makeState().players.alice,
+              inventories: {
+                ...makeState().players.alice.inventories,
+                satchel: { structure: 'none', pieceIds: ['c5', 'c6'] },
+              },
+            },
+            bob: {
+              ...makeState().players.bob,
+              inventories: {
+                ...makeState().players.bob.inventories,
+                satchel: { structure: 'none', pieceIds: [] },
+              },
+            },
+          },
+        },
+      });
+      const aliceView = projectStateForPlayer(session, 'alice');
+      const bobView = projectStateForPlayer(session, 'bob');
+      // Owner sees full contents
+      expect(aliceView.players['alice'].inventories['satchel']).toEqual({
+        structure: 'none', pieceIds: ['c5', 'c6'],
+      });
+      // Non-owner sees nothing (count hidden too)
+      expect(bobView.players['alice'].inventories['satchel']).toEqual({ redacted: 'hidden' });
     });
   });
 });

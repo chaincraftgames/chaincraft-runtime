@@ -10,10 +10,10 @@ import { GameEventEmitter } from '#chaincraft/events/emitter.js';
 function makeConfig(): GameConfig {
   return {
     inventories: {
-      deck: { structure: 'stack', scope: 'game', visibility: 'count-only', accepts: ['card'] },
-      hand: { structure: 'none', scope: 'player', visibility: 'owner', accepts: ['card'] },
-      discard: { structure: 'stack', scope: 'game', visibility: 'always', accepts: ['card'] },
-      'game:unassigned': { structure: 'none', scope: 'game', visibility: 'never', accepts: ['card', 'token'] },
+      deck: { structure: 'stack', scope: 'game', visibility: 'never', countVisibility: 'always', accepts: ['card'] },
+      hand: { structure: 'none', scope: 'player', visibility: 'owner', countVisibility: 'always', accepts: ['card'] },
+      discard: { structure: 'stack', scope: 'game', visibility: 'always', countVisibility: 'always', accepts: ['card'] },
+      'game:unassigned': { structure: 'none', scope: 'game', visibility: 'never', countVisibility: 'never', accepts: ['card', 'token'] },
     },
     gamepieceTypes: {
       card: { category: 'card', properties: {} },

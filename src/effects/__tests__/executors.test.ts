@@ -23,6 +23,7 @@ function makeConfig(overrides?: Partial<GameConfig>): GameConfig {
         structure: 'stack',
         scope: 'player',
         visibility: 'owner',
+        countVisibility: 'always',
         accepts: ['weapon'],
       },
     },
@@ -1217,7 +1218,7 @@ function makeDiceSession(): GameSession {
   const session = makeSession();
   session.config.gamepieceTypes['die'] = { category: 'dice', faceCount: 6, properties: {} };
   session.config.inventories['dice-tray'] = {
-    structure: 'none', scope: 'game', visibility: 'always', accepts: ['die'],
+    structure: 'none', scope: 'game', visibility: 'always', countVisibility: 'always', accepts: ['die'],
   };
   session.state.gameInventories['dice-tray'] = { structure: 'none', pieceIds: ['die-1', 'die-2'] };
   session.state.gamepieces['die-1'] = {
@@ -1256,7 +1257,7 @@ describe('executeRoll', () => {
     const a = makeDiceSession();
     const b = makeSession(); // fresh session with same seed (42)
     b.config.gamepieceTypes['die'] = { category: 'dice', faceCount: 6, properties: {} };
-    b.config.inventories['dice-tray'] = { structure: 'none', scope: 'game', visibility: 'always', accepts: ['die'] };
+    b.config.inventories['dice-tray'] = { structure: 'none', scope: 'game', visibility: 'always', countVisibility: 'always', accepts: ['die'] };
     b.state.gameInventories['dice-tray'] = { structure: 'none', pieceIds: ['die-1', 'die-2'] };
     b.state.gamepieces['die-1'] = { typeId: 'die', ownerId: 'game', properties: {}, faceUp: true, exhausted: false, visibleTo: null };
     b.state.gamepieces['die-2'] = { typeId: 'die', ownerId: 'game', properties: {}, faceUp: true, exhausted: false, visibleTo: null };
@@ -1285,7 +1286,7 @@ function makeOrientSession(): GameSession {
   const session = makeSession();
   session.config.gamepieceTypes['tile'] = { category: 'tile', orientationCount: 4, properties: {} };
   session.config.inventories['board'] = {
-    structure: 'none', scope: 'game', visibility: 'always', accepts: ['tile'],
+    structure: 'none', scope: 'game', visibility: 'always', countVisibility: 'always', accepts: ['tile'],
   };
   session.state.gameInventories['board'] = { structure: 'none', pieceIds: ['tile-1'] };
   session.state.gamepieces['tile-1'] = {

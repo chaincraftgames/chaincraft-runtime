@@ -10,8 +10,8 @@ import { GameEventEmitter } from '#chaincraft/events/emitter.js';
 function makeConfig(): GameConfig {
   return {
     inventories: {
-      deck: { structure: 'stack', scope: 'game', visibility: 'count-only', accepts: ['card'] },
-      hand: { structure: 'none', scope: 'player', visibility: 'owner', accepts: ['card'] },
+      deck: { structure: 'stack', scope: 'game', visibility: 'never', countVisibility: 'always', accepts: ['card'] },
+      hand: { structure: 'none', scope: 'player', visibility: 'owner', countVisibility: 'always', accepts: ['card'] },
     },
     gamepieceTypes: { card: { category: 'card', properties: {} } },
     gameProperties: {},
@@ -151,7 +151,7 @@ describe('executeShuffle — bag inventory is a no-op', () => {
   it('leaves bag piece order unchanged (bags are unordered)', async () => {
     const session = makeSession();
     // Promote hand to a bag-structured config for this test
-    session.config.inventories['hand'] = { structure: 'none', scope: 'player', visibility: 'owner', accepts: ['card'] };
+    session.config.inventories['hand'] = { structure: 'none', scope: 'player', visibility: 'owner', countVisibility: 'always', accepts: ['card'] };
     const before = [...(session.state.players['p1'].inventories['hand'] as any).pieceIds];
     await executeShuffle(session, makeCtx({
       actorId: 'p1',

@@ -237,7 +237,9 @@ export type Message = {
 export type InventoryConfig = {
   structure: InventoryStructure;
   scope: "game" | "player" | "team" | "piece";
-  visibility: "always" | "revealed" | "owner" | "count-only" | "never";
+  visibility: "always" | "revealed" | "owner" | "never" | 'top-revealed';
+  /** Controls count visibility independently from piece visibility. */
+  countVisibility: "always" | "owner" | "never";
   accepts: string[];
   capacity?: { min?: number; max?: number };
   gridDimensions?: { rows: number; columns: number };

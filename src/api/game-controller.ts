@@ -22,9 +22,10 @@
 
 import type {
   CompiledGameModule,
+  GameSession,
   GameState,
   Message,
-} from '#chaincraft/types.js';
+} from "#chaincraft/types.js";
 import type {
   GameExecutionState,
   GameExecutionDeps,
@@ -34,13 +35,16 @@ import type {
   LlmSuspension,
   ExternalDataSuspension,
   GameOutcome,
-} from '#chaincraft/orchestration/types.js';
-import { step } from '#chaincraft/orchestration/game-step.js';
-import { createFlowRunner } from '#chaincraft/orchestration/flow-runner.js';
-import { resolveOptions } from '#chaincraft/orchestration/options.js';
-import type { ProjectedState } from '#chaincraft/state/projection.js';
-import { projectStateForPlayer } from '#chaincraft/state/projection.js';
-import type { StateChangeEvent } from '#chaincraft/api/state-change-events.js';
+} from "#chaincraft/orchestration/types.js";
+import { step } from "#chaincraft/orchestration/game-step.js";
+import { createFlowRunner } from "#chaincraft/orchestration/flow-runner.js";
+import { resolveOptions } from "#chaincraft/orchestration/options.js";
+import type { ProjectedState } from "#chaincraft/state/projection.js";
+import {
+  projectStateForPlayer,
+  projectStateChanges,
+} from "#chaincraft/state/projection.js";
+import type { StateChangeEvent } from "#chaincraft/api/state-change-events.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -143,10 +147,12 @@ export class GameController {
       resolveOptions,
     };
     // Subscribe to internal state-change events; buffer until settle() flushes.
-    session.events.on('state:change', (event) => {
-      this.#pendingStateChanges.push((event as { kind: string; change: StateChangeEvent }).change);
+    session.events.on("state:change", (event) => {
+      this.#pendingStateChanges.push(
+        (event as { kind: string; change: StateChangeEvent }).change,
+      );
     });
-    session.events.emit({ kind: 'game:init', gameId, players });
+    session.events.emit({ kind: "game:init", gameId, players });
     const result = await step(this.execState, undefined, this.deps);
     await this.settle(result);
   }
@@ -157,7 +163,7 @@ export class GameController {
    */
   public async processAction(input: PlayerInput): Promise<void> {
     if (this.#outcome !== undefined) {
-      throw new Error('Game is already complete');
+      throw new Error("Game is already complete");
     }
     if (!this.#pendingPrompts.has(input.playerId)) {
       throw new Error(`No prompt is awaiting player "${input.playerId}"`);
@@ -169,7 +175,7 @@ export class GameController {
   /** Deep snapshot of game state. */
   public getState(_playerId?: string): GameState {
     if (!this.execState) {
-      throw new Error('GameController not initialized — call init() first');
+      throw new Error("GameController not initialized — call init() first");
     }
     return structuredClone(this.execState.session.state);
   }
@@ -177,9 +183,18 @@ export class GameController {
   /** Returns game state projected for the given player (visibility rules applied). */
   public projectStateForPlayer(playerId: string): ProjectedState {
     if (!this.execState) {
-      throw new Error('GameController not initialized — call init() first');
+      throw new Error("GameController not initialized — call init() first");
     }
     return projectStateForPlayer(this.execState.session, playerId);
+  }
+
+  /** Returns state-change events projected for the given player (visibility rules applied). */
+  public projectStateChangesForPlayer(
+    changes: StateChangeEvent[],
+    playerId: string,
+  ): StateChangeEvent[] {
+    if (!this.execState) return changes;
+    return projectStateChanges(this.execState.session, changes, playerId);
   }
 
   /** Returns the pending suspension for the given player, or undefined if none. */
@@ -194,12 +209,12 @@ export class GameController {
   private async settle(result: StepResult): Promise<void> {
     this.drainOutbox();
 
-    while (result.kind === 'suspended') {
+    while (result.kind === "suspended") {
       let systemSuspension: LlmSuspension | ExternalDataSuspension | undefined;
       const playerSuspensions: PlayerInputSuspension[] = [];
 
       for (const s of result.waiting) {
-        if (s.kind === 'player-input') {
+        if (s.kind === "player-input") {
           playerSuspensions.push(s as PlayerInputSuspension);
         } else {
           systemSuspension ??= s as LlmSuspension | ExternalDataSuspension;
@@ -237,10 +252,13 @@ export class GameController {
       return;
     }
 
-    if (result.kind === 'complete') {
+    if (result.kind === "complete") {
       this.#pendingPrompts.clear();
       this.#outcome = result.outcome;
-      this.execState!.session.events.emit({ kind: 'game:complete', outcome: result.outcome });
+      this.execState!.session.events.emit({
+        kind: "game:complete",
+        outcome: result.outcome,
+      });
       this.options.events?.onComplete?.(result.outcome);
     }
     this.#flushStateChanges();
@@ -251,7 +269,7 @@ export class GameController {
     if (outbox.length === 0) return;
     const messages = outbox.splice(0) as Message[];
     for (const message of messages) {
-      this.execState!.session.events.emit({ kind: 'message:emit', message });
+      this.execState!.session.events.emit({ kind: "message:emit", message });
       this.options.events?.onMessage?.(message);
     }
   }
