@@ -4,6 +4,7 @@ export * from "#chaincraft/mechanics/index.js";
 export * from "#chaincraft/state/index.js";
 export * from "#chaincraft/rng/index.js";
 export * from "#chaincraft/effects/index.js";
+export { rankBy, topRanked } from "#chaincraft/utils/ranking.js";
 export { GameEventEmitter } from "#chaincraft/events/emitter.js";
 export type {
   GameEvent,
@@ -41,10 +42,10 @@ export type {
   StatePropertyChangedEvent,
 } from "#chaincraft/api/state-change-events.js";
 export type { GameOutcome } from "#chaincraft/orchestration/types.js";
-export type { 
-  PlayerInputSuspension, 
-  PlayerInput 
-} from "#chaincraft/orchestration/types.js";
 export type {
-  ProjectedState,
-} from "#chaincraft/state/projection.js";
+  PlayerInputSuspension,
+  PlayerInput,
+} from "#chaincraft/orchestration/types.js";
+export { evaluateWinConditions } from "#chaincraft/orchestration/win-conditions.js";
+export type { WinConditionResult } from "#chaincraft/orchestration/win-conditions.js";
+export type { ProjectedState } from "#chaincraft/state/projection.js";

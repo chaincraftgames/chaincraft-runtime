@@ -11,11 +11,12 @@
 // `order` arrays until Phase 6 (Absurd Armaments needs those).
 // ---------------------------------------------------------------------------
 
-import type { EffectRegistration, GameSession } from '#chaincraft/types.js';
+import type { EffectRegistration, GameSession } from "#chaincraft/types.js";
 import type {
   DominantGamepieceMechanic,
   DominantGamepieceRule,
-} from './types.js';
+} from "./types.js";
+import { rankBy } from "#chaincraft/utils/ranking.js";
 
 /**
  * Rank pieces within a tie-group using one rule. Returns an array of ranks
@@ -26,14 +27,16 @@ function rankByRule(
   pieceIds: string[],
   session: GameSession,
 ): number[] {
-  if (rule.kind === 'dominant') {
+  if (rule.kind === "dominant") {
     throw new Error(
       `dominant-gamepiece: rule kind 'dominant' is not yet supported (Phase 6). ` +
-        `Mechanic was: evaluationInventory=${(session as unknown as { _mechanic?: string })._mechanic ?? '?'}`,
+        `Mechanic was: evaluationInventory=${(session as unknown as { _mechanic?: string })._mechanic ?? "?"}`,
     );
   }
-  if (rule.kind === 'matrix') {
-    throw new Error(`dominant-gamepiece: rule kind 'matrix' is not yet supported (Phase 6).`);
+  if (rule.kind === "matrix") {
+    throw new Error(
+      `dominant-gamepiece: rule kind 'matrix' is not yet supported (Phase 6).`,
+    );
   }
 
   // comparison
@@ -43,18 +46,11 @@ function rankByRule(
     );
   }
 
-  const values = pieceIds.map((id) =>
-    Number(session.state.gamepieces[id]?.properties[rule.property] ?? 0),
-  );
-
-  // rank = number of OTHER pieces in this group with a strictly better value
-  return values.map((v, i) =>
-    values.reduce((rank, other, j) => {
-      if (j === i) return rank;
-      const otherBetter =
-        rule.direction === 'highest' ? other > v : other < v;
-      return rank + (otherBetter ? 1 : 0);
-    }, 0),
+  return rankBy(
+    pieceIds,
+    (id) =>
+      Number(session.state.gamepieces[id]?.properties[rule.property] ?? 0),
+    rule.direction,
   );
 }
 
@@ -67,7 +63,7 @@ export function createDominantGamepieceResolver(
   mechanic: DominantGamepieceMechanic,
 ): EffectRegistration {
   return {
-    kind: 'effect-executor',
+    kind: "effect-executor",
     execute: async (session: GameSession): Promise<void> => {
       const inv = session.state.gameInventories[mechanic.evaluationInventory];
       if (!inv) {
@@ -76,7 +72,7 @@ export function createDominantGamepieceResolver(
         );
       }
 
-      const allPieceIds: string[] = 'pieceIds' in inv ? [...inv.pieceIds] : [];
+      const allPieceIds: string[] = "pieceIds" in inv ? [...inv.pieceIds] : [];
       if (allPieceIds.length === 0) return;
 
       // Process rules as a chain: start with all pieces in one rank-0 group,
@@ -111,20 +107,20 @@ export function createDominantGamepieceResolver(
       const winners = rankGroups[0];
       const isTie = winners.length !== 1;
       const winnerOwnerId = isTie
-        ? ''
-        : (session.state.gamepieces[winners[0]]?.ownerId ?? '');
-      const winnerPieceId = isTie ? '' : winners[0];
+        ? ""
+        : (session.state.gamepieces[winners[0]]?.ownerId ?? "");
+      const winnerPieceId = isTie ? "" : winners[0];
 
       if (mechanic.winnerToState) {
-        const parts = mechanic.winnerToState.split('.');
-        if (parts[0] === 'game' && parts[1] === 'property' && parts[2]) {
+        const parts = mechanic.winnerToState.split(".");
+        if (parts[0] === "game" && parts[1] === "property" && parts[2]) {
           session.state.gameProperties[parts[2]] = winnerOwnerId;
         }
       }
 
       if (mechanic.winningPieceToState) {
-        const parts = mechanic.winningPieceToState.split('.');
-        if (parts[0] === 'game' && parts[1] === 'property' && parts[2]) {
+        const parts = mechanic.winningPieceToState.split(".");
+        if (parts[0] === "game" && parts[1] === "property" && parts[2]) {
           session.state.gameProperties[parts[2]] = winnerPieceId;
         }
       }

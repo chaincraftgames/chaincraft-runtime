@@ -237,7 +237,7 @@ export type Message = {
 export type InventoryConfig = {
   structure: InventoryStructure;
   scope: "game" | "player" | "team" | "piece";
-  visibility: "always" | "revealed" | "owner" | "never" | 'top-revealed';
+  visibility: "always" | "revealed" | "owner" | "never" | "top-revealed";
   /** Controls count visibility independently from piece visibility. */
   countVisibility: "always" | "owner" | "never";
   accepts: string[];
@@ -407,6 +407,7 @@ export type GameFlowNode = {
   kind: "game";
   id: string;
   hooks?: FlowHooks;
+  winConditions?: WinConditionDef[];
   children: FlowNode[];
 };
 
@@ -495,6 +496,31 @@ export type FlowHooks = {
 };
 
 export type EffectRef = { ref: string } | Record<string, unknown>; // named ref or inline effect
+
+// ---------------------------------------------------------------------------
+// Win conditions (evaluated when the game-root flow node completes)
+// ---------------------------------------------------------------------------
+
+/** A win condition definition. */
+export type WinConditionDef = RankingWinConditionDef | ConditionWinConditionDef;
+
+/** A ranking-based win condition definition. */
+export type RankingWinConditionDef = {
+  rule: "ranking";
+  /** Reads the rankable value for a given player. */
+  value: (session: GameSession, playerId: string) => number;
+  order: "highest" | "lowest";
+  tiebreak: "all-win" | "no-winner";
+  onVictory?: EffectRef[];
+};
+
+/** A condition-based win condition definition. */
+export type ConditionWinConditionDef = {
+  rule: "condition";
+  /** Per-player predicate; actorId is bound to the player being tested. */
+  condition: Predicate;
+  onVictory?: EffectRef[];
+};
 
 // ---------------------------------------------------------------------------
 // Grammar (player action patterns within a turn or simultaneous node)

@@ -33,11 +33,12 @@ import type {
   PlayerTurnCursor,
   PlayerTurnInit,
 } from "./types.js";
-import { 
-  resolveNextEligibleActors, 
-  readStatePath, 
-  writeStatePath 
+import {
+  resolveNextEligibleActors,
+  readStatePath,
+  writeStatePath,
 } from "./turn-order.js";
+import { evaluateWinConditions } from "#chaincraft/orchestration/win-conditions.js";
 
 // ---------------------------------------------------------------------------
 // Per-node frame state schemas.
@@ -54,7 +55,7 @@ import {
 /** Tracks progress within a game node, which is the root of the flow tree. */
 interface GameFrameState {
   /** Which phase the game node is currently in. */
-  phase: "enter-hooks" | "children" | "complete-hooks";
+  phase: "enter-hooks" | "children" | "complete-hooks" | "win-conditions";
   /** Index into the node's children array — which child is currently active. */
   childIndex: number;
 }
@@ -78,7 +79,7 @@ interface LoopFrameState {
  * here on the next advanceFlow call.
  */
 interface TurnFrameState {
-  phase: 'enter-hooks' | 'acting' | 'complete-hooks';
+  phase: "enter-hooks" | "acting" | "complete-hooks";
   /** Per-player grammar cursors. Populated incrementally as actors become eligible. */
   cursors: Record<string, PlayerTurnCursor>;
 }
@@ -123,7 +124,7 @@ function resumeTop(
     // Stack fully exhausted — the root node completed without a winner signal.
     // This normally shouldn't happen (root loop should have an endCondition that
     // triggers a set-state + game-over path), but handle it gracefully.
-    return { kind: 'complete', outcome: { reason: 'flow-exhausted' } };
+    return { kind: "complete", outcome: { reason: "flow-exhausted" } };
   }
 
   const frame = state.flowStack[state.flowStack.length - 1];
@@ -136,13 +137,7 @@ function resumeTop(
     case "loop":
       return advanceLoop(state, module, nodesByIdMap, node, frame);
     case "turn":
-      return advanceTurn(
-        state,
-        module,
-        nodesByIdMap,
-        node,
-        frame,
-      );
+      return advanceTurn(state, module, nodesByIdMap, node, frame);
   }
 }
 
@@ -160,31 +155,57 @@ function advanceGame(
 ): FlowAdvanceResult {
   const ls = asTypedFrameState<GameFrameState>(frame);
 
-  if (ls.phase === 'enter-hooks') {
-    ls.phase = 'children';
-    state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'children' });
+  if (ls.phase === "enter-hooks") {
+    ls.phase = "children";
+    state.session.events.emit({
+      kind: "flow:phase",
+      nodeId: node.id,
+      phase: "children",
+    });
     const items = buildHookItems(node.hooks?.onEnter, undefined);
-    if (items.length) return { kind: 'enqueue', items };
+    if (items.length) return { kind: "enqueue", items };
   }
 
-  if (ls.phase === 'children') {
+  if (ls.phase === "children") {
     if (ls.childIndex < node.children.length) {
       const child = node.children[ls.childIndex++];
       pushFrame(state, child);
       return resumeTop(state, module, nodeIndex);
     }
-    ls.phase = 'complete-hooks';
-    state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'complete-hooks' });
+    ls.phase = "complete-hooks";
+    state.session.events.emit({
+      kind: "flow:phase",
+      nodeId: node.id,
+      phase: "complete-hooks",
+    });
     const items = buildHookItems(node.hooks?.onComplete, undefined);
-    if (items.length) return { kind: 'enqueue', items };
+    if (items.length) return { kind: "enqueue", items };
   }
 
-  // Done — pop and resume parent.
-  state.flowStack.pop();
-  state.session.events.emit({ kind: 'flow:exit', nodeId: node.id });
-  return resumeTop(state, module, nodeIndex);
-}
+  if (ls.phase === "complete-hooks") {
+    if (node.winConditions?.length) {
+      ls.phase = "win-conditions";
+      const result = evaluateWinConditions(state.session, node.winConditions);
+      state.session.state.gameProperties["winners"] = result.winnerIds;
+      const items = buildHookItems(result.onVictoryEffects, undefined);
+      if (items.length) return { kind: "enqueue", items };
+    }
+  }
 
+  // Done — pop and signal completion.
+  state.flowStack.pop();
+  state.session.events.emit({ kind: "flow:exit", nodeId: node.id });
+  const winnerIds = state.session.state.gameProperties["winners"] as
+    | string[]
+    | undefined;
+  return {
+    kind: "complete",
+    outcome: {
+      reason: winnerIds?.length ? "win-conditions" : "flow-exhausted",
+      ...(winnerIds?.length && { winnerIds }),
+    },
+  };
+}
 
 /**
  * Advances a loop node. Iterates through children repeatedly until the loop's exit
@@ -199,19 +220,23 @@ function advanceLoop(
 ): FlowAdvanceResult {
   const ls = asTypedFrameState<LoopFrameState>(frame);
 
-  if (ls.phase === 'enter-hooks') {
-    ls.phase = 'children';
-    state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'children' });
+  if (ls.phase === "enter-hooks") {
+    ls.phase = "children";
+    state.session.events.emit({
+      kind: "flow:phase",
+      nodeId: node.id,
+      phase: "children",
+    });
 
     // Write the current iteration count to the specified state path, if configured.
     if (node.writeIterationTo) {
       writeStatePath(state.session, node.writeIterationTo, ls.iterationCount);
     }
     const items = buildHookItems(node.hooks?.onEnter, undefined);
-    if (items.length) return { kind: 'enqueue', items };
+    if (items.length) return { kind: "enqueue", items };
   }
 
-  if (ls.phase === 'children') {
+  if (ls.phase === "children") {
     if (ls.childIndex < node.children.length) {
       const child = node.children[ls.childIndex++];
       pushFrame(state, child);
@@ -225,21 +250,29 @@ function advanceLoop(
     const shouldExit = checkLoopExit(node, state, ls);
 
     if (shouldExit) {
-      ls.phase = 'complete-hooks';
-      state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'complete-hooks' });
+      ls.phase = "complete-hooks";
+      state.session.events.emit({
+        kind: "flow:phase",
+        nodeId: node.id,
+        phase: "complete-hooks",
+      });
       const items = buildHookItems(node.hooks?.onComplete, undefined);
-      if (items.length) return { kind: 'enqueue', items };
+      if (items.length) return { kind: "enqueue", items };
     } else {
       // Start next iteration — fire onEnter again.
-      ls.phase = 'enter-hooks';
-      state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'enter-hooks' });
+      ls.phase = "enter-hooks";
+      state.session.events.emit({
+        kind: "flow:phase",
+        nodeId: node.id,
+        phase: "enter-hooks",
+      });
       return advanceLoop(state, module, nodeIndex, node, frame);
     }
   }
 
   // complete-hooks already drained — pop.
   state.flowStack.pop();
-  state.session.events.emit({ kind: 'flow:exit', nodeId: node.id });
+  state.session.events.emit({ kind: "flow:exit", nodeId: node.id });
   return resumeTop(state, module, nodeIndex);
 }
 
@@ -287,24 +320,36 @@ function advanceTurn(
 ): FlowAdvanceResult {
   const ls = asTypedFrameState<TurnFrameState>(frame);
 
-  if (ls.phase === 'enter-hooks') {
-    ls.phase = 'acting';
-    state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'acting' });
+  if (ls.phase === "enter-hooks") {
+    ls.phase = "acting";
+    state.session.events.emit({
+      kind: "flow:phase",
+      nodeId: node.id,
+      phase: "acting",
+    });
     const items = buildHookItems(node.hooks?.onEnter, undefined);
-    if (items.length) return { kind: 'enqueue', items };
+    if (items.length) return { kind: "enqueue", items };
   }
 
-  if (ls.phase === 'acting') {
-    const eligible = resolveNextEligibleActors(node.ordering, state, ls.cursors);
+  if (ls.phase === "acting") {
+    const eligible = resolveNextEligibleActors(
+      node.ordering,
+      state,
+      ls.cursors,
+    );
 
     if (eligible.length === 0) {
       // All actors have completed their grammar — move to complete-hooks.
-      ls.phase = 'complete-hooks';
-      state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'complete-hooks' });
+      ls.phase = "complete-hooks";
+      state.session.events.emit({
+        kind: "flow:phase",
+        nodeId: node.id,
+        phase: "complete-hooks",
+      });
       const items = buildHookItems(node.hooks?.onComplete, undefined);
-      if (items.length) return { kind: 'enqueue', items };
+      if (items.length) return { kind: "enqueue", items };
       state.flowStack.pop();
-      state.session.events.emit({ kind: 'flow:exit', nodeId: node.id });
+      state.session.events.emit({ kind: "flow:exit", nodeId: node.id });
       return resumeTop(state, module, nodeIndex);
     }
 
@@ -325,13 +370,13 @@ function advanceTurn(
       };
     }
 
-    return { kind: 'fork', runners };
+    return { kind: "fork", runners };
   }
 
-  if (ls.phase === 'complete-hooks') {
+  if (ls.phase === "complete-hooks") {
     // Reached when complete-hooks produced items; step() drained them and called back.
     state.flowStack.pop();
-    state.session.events.emit({ kind: 'flow:exit', nodeId: node.id });
+    state.session.events.emit({ kind: "flow:exit", nodeId: node.id });
     return resumeTop(state, module, nodeIndex);
   }
 
@@ -340,19 +385,44 @@ function advanceTurn(
 
 /** Pushes a new frame onto the flow stack for the given node. */
 function pushFrame(state: GameExecutionState, node: FlowNode): FlowFrame {
-  const frame: FlowFrame = { nodeId: node.id, localState: initFrameState(node) };
+  const frame: FlowFrame = {
+    nodeId: node.id,
+    localState: initFrameState(node),
+  };
   state.flowStack.push(frame);
-  state.session.events.emit({ kind: 'flow:enter', nodeId: node.id, nodeType: node.kind });
-  state.session.events.emit({ kind: 'flow:phase', nodeId: node.id, phase: 'enter-hooks' });
+  state.session.events.emit({
+    kind: "flow:enter",
+    nodeId: node.id,
+    nodeType: node.kind,
+  });
+  state.session.events.emit({
+    kind: "flow:phase",
+    nodeId: node.id,
+    phase: "enter-hooks",
+  });
   return frame;
 }
 
 /** Initializes the local state for a new flow frame based on the node kind. */
 function initFrameState(node: FlowNode): Record<string, unknown> {
   switch (node.kind) {
-    case 'game':  return { phase: 'enter-hooks', childIndex: 0 } as unknown as Record<string, unknown>;
-    case 'loop':  return { phase: 'enter-hooks', childIndex: 0, iterationCount: 0, finalRoundTriggered: false } as unknown as Record<string, unknown>;
-    case 'turn':  return { phase: 'enter-hooks', cursors: {} } as unknown as Record<string, unknown>;
+    case "game":
+      return { phase: "enter-hooks", childIndex: 0 } as unknown as Record<
+        string,
+        unknown
+      >;
+    case "loop":
+      return {
+        phase: "enter-hooks",
+        childIndex: 0,
+        iterationCount: 0,
+        finalRoundTriggered: false,
+      } as unknown as Record<string, unknown>;
+    case "turn":
+      return { phase: "enter-hooks", cursors: {} } as unknown as Record<
+        string,
+        unknown
+      >;
   }
 }
 
@@ -361,7 +431,7 @@ function buildNodesByIdMap(root: FlowNode): Map<string, FlowNode> {
   const index = new Map<string, FlowNode>();
   function traverse(node: FlowNode) {
     index.set(node.id, node);
-    if ('children' in node && Array.isArray(node.children)) {
+    if ("children" in node && Array.isArray(node.children)) {
       node.children.forEach(traverse);
     }
   }
@@ -370,8 +440,11 @@ function buildNodesByIdMap(root: FlowNode): Map<string, FlowNode> {
 }
 
 /** Builds queue items for the given hook effects and actor ID. */
-function buildHookItems(effects: EffectRef[] | undefined, actorId: string | undefined): QueueItem[] {
+function buildHookItems(
+  effects: EffectRef[] | undefined,
+  actorId: string | undefined,
+): QueueItem[] {
   if (!effects?.length) return [];
   const group: QueueGroup = { actorId, collected: {} };
-  return effects.map(effect => ({ kind: 'effect' as const, effect, group }));
+  return effects.map((effect) => ({ kind: "effect" as const, effect, group }));
 }
