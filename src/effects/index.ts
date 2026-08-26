@@ -1,21 +1,24 @@
-export { executeSetState } from './set-state.js';
-export { executeUpdate } from './update.js';
-export { executeSetRandom } from './set-random.js';
-export { executeMessage } from './message.js';
-export { executeMove } from './move.js';
-export { executeShuffle } from './shuffle.js';
-export { executeDistribute } from './distribute.js';
-export { executeFlip } from './flip.js';
-export { executeRoll } from './roll.js';
-export { executeOrient } from './orient.js';
-export { executeReveal, executeHide } from './reveal-hide.js';
-export { createCustomExecutor } from './custom.js';
-export type { CustomHandler, CustomHandlerMap } from './custom.js';
+export { executeSetState } from "#chaincraft/effects/set-state.js";
+export { executeUpdate } from "#chaincraft/effects/update.js";
+export { executeSetRandom } from "#chaincraft/effects/set-random.js";
+export { executeMessage } from "#chaincraft/effects/message.js";
+export { executeMove } from "#chaincraft/effects/move.js";
+export { executeShuffle } from "#chaincraft/effects/shuffle.js";
+export { executeDistribute } from "#chaincraft/effects/distribute.js";
+export { executeFlip } from "#chaincraft/effects/flip.js";
+export { executeRoll } from "#chaincraft/effects/roll.js";
+export { executeOrient } from "#chaincraft/effects/orient.js";
+export { executeReveal, executeHide } from "#chaincraft/effects/reveal-hide.js";
+export { createCustomExecutor } from "#chaincraft/effects/custom.js";
+export type {
+  CustomHandler,
+  CustomHandlerMap,
+} from "#chaincraft/effects/custom.js";
 export {
   EffectBus,
   createPendingEffect,
   createAdjustablePendingEffect,
-} from './effect-bus.js';
+} from "#chaincraft/effects/effect-bus.js";
 export type {
   PassiveTrigger,
   StateWriteTrigger,
@@ -32,9 +35,12 @@ export type {
   AdjustablePendingEffect as ModifiablePendingEffect,
   BeforeHandler,
   AfterHandler,
-} from './effect-bus.js';
-export { selectGamepieces } from './gamepiece-selector.js';
-export { resolvePlayerTarget } from './player-target.js';
-export type { PlayerTarget } from './player-target.js';
-export { resolveValue } from './resolve-value.js';
-export type { PropertyValue } from './resolve-value.js';
+} from "#chaincraft/effects/effect-bus.js";
+export { selectGamepieces } from "#chaincraft/effects/gamepiece-selector.js";
+export { resolvePlayerTarget } from "#chaincraft/effects/player-target.js";
+export type { PlayerTarget } from "#chaincraft/effects/player-target.js";
+export { resolveValue } from "#chaincraft/effects/resolve-value.js";
+export type {
+  PropertyValue,
+  CompiledValueFn,
+} from "#chaincraft/effects/resolve-value.js";
