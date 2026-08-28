@@ -25,6 +25,7 @@ export type GamepieceSelector = {
   select: string | { id: string | { param: string } };
   count?: number;
   ofType?: string;
+  filter?: (session: GameSession, pieceId: string) => boolean;
 };
 
 /**
@@ -78,6 +79,10 @@ export function selectGamepieces(
         const piece = session.state.gamepieces[id];
         return piece && piece.typeId === sel.ofType;
       });
+    }
+
+    if (sel.filter) {
+      selected = selected.filter((id) => sel.filter!(session, id));
     }
 
     results.push(...selected);

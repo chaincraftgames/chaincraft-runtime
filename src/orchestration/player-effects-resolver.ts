@@ -47,10 +47,19 @@ export function nextPlayerTurnWork(
 ): PlayerTurnSignal {
   if (cursor.done) return { kind: "done" };
 
-  // TODO: apply precondition filtering here — resolveLegalActions returns the
-  // structural set; filter actions against _state before the forced check and
-  // before issuing the suspension.
-  const { actions, canPass } = resolveLegalActions(grammar, cursor);
+  const { actions: structuralActions, canPass } = resolveLegalActions(grammar, cursor);
+
+  // Filter actions whose precondition is not satisfied at the current state.
+  const actions = structuralActions.filter((id) => {
+    const def = module.actions[id];
+    return !def?.precondition || def.precondition(_state.session, playerId);
+  });
+
+  if (actions.length === 0 && !canPass) {
+    throw new Error(
+      `Player "${playerId}" has no legal actions at node "${nodeLabel ?? "unknown"}" — check spec preconditions`,
+    );
+  }
 
   // Singleton + no pass means no decision exists: auto-execute without prompting.
   if (actions.length === 1 && !canPass) {

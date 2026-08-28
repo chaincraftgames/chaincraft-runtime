@@ -647,6 +647,7 @@ export type ActionDef = {
   readonly description: string;
   readonly inputs: ActionInputDef[];
   readonly effects: EffectRef[];
+  readonly precondition?: (session: GameSession, actorId: string) => boolean;
 };
 
 // ---------------------------------------------------------------------------
