@@ -14,10 +14,14 @@
 //   - 'player' → session.state.players[actorId].inventories[inventoryId]
 // ---------------------------------------------------------------------------
 
-import type { GameSession, EffectContext, SelectionMode } from '#chaincraft/types.js';
-import type { Inventory } from '#chaincraft/inventory/Inventory.js';
-import { getInventory } from '#chaincraft/inventory/index.js';
-import { resolvePlayerRef } from '#chaincraft/effects/player-target.js';
+import type {
+  GameSession,
+  EffectContext,
+  SelectionMode,
+} from "#chaincraft/types.js";
+import type { Inventory } from "#chaincraft/inventory/Inventory.js";
+import { getInventory } from "#chaincraft/inventory/index.js";
+import { resolvePlayerRef } from "#chaincraft/effects/player-target.js";
 
 export type GamepieceSelector = {
   player?: { stateRef: string } | { param: string };
@@ -25,7 +29,7 @@ export type GamepieceSelector = {
   select: string | { id: string | { param: string } };
   count?: number;
   ofType?: string;
-  filter?: (session: GameSession, pieceId: string) => boolean;
+  filter?: (session: GameSession, pieceId: string, actorId?: string) => boolean;
 };
 
 /**
@@ -39,24 +43,33 @@ export function selectGamepieces(
   const sel = selector;
   const inventoryId = sel.inventory;
   const invConfig = session.config.inventories[inventoryId];
-  const scope = invConfig?.scope ?? 'game';
+  const scope = invConfig?.scope ?? "game";
 
   // Resolve explicit player override if provided
   const playerRef = sel.player;
-  const overridePlayerId = playerRef ? resolvePlayerRef(session, ctx, playerRef) : undefined;
-  const effectiveCtx = overridePlayerId ? { ...ctx, targetPlayerId: overridePlayerId } : ctx;
+  const overridePlayerId = playerRef
+    ? resolvePlayerRef(session, ctx, playerRef)
+    : undefined;
+  const effectiveCtx = overridePlayerId
+    ? { ...ctx, targetPlayerId: overridePlayerId }
+    : ctx;
 
-  const inventories = resolveInventories(session, effectiveCtx, inventoryId, scope);
+  const inventories = resolveInventories(
+    session,
+    effectiveCtx,
+    inventoryId,
+    scope,
+  );
 
   // Handle { id: ... } select mode
-  if (typeof sel.select === 'object' && 'id' in sel.select) {
+  if (typeof sel.select === "object" && "id" in sel.select) {
     const idSpec = sel.select.id;
     const pieceId =
-      typeof idSpec === 'string'
+      typeof idSpec === "string"
         ? idSpec
-        : typeof idSpec === 'object' && 'param' in idSpec
-          ? String(ctx.actionInputs[idSpec.param] ?? '')
-          : '';
+        : typeof idSpec === "object" && "param" in idSpec
+          ? String(ctx.actionInputs[idSpec.param] ?? "")
+          : "";
     if (!pieceId) return [];
     // Return the piece if it's actually in one of the resolved inventories
     for (const inv of inventories) {
@@ -82,7 +95,9 @@ export function selectGamepieces(
     }
 
     if (sel.filter) {
-      selected = selected.filter((id) => sel.filter!(session, id));
+      selected = selected.filter((id) =>
+        sel.filter!(session, id, ctx.actorId ?? undefined),
+      );
     }
 
     results.push(...selected);
@@ -100,12 +115,12 @@ function resolveInventories(
   inventoryId: string,
   scope: string,
 ): Inventory[] {
-  if (scope === 'game') {
+  if (scope === "game") {
     const inv = getInventory(session, inventoryId);
     return inv ? [inv] : [];
   }
 
-  if (scope === 'player') {
+  if (scope === "player") {
     // Use the resolved target player, falling back to the actor
     const playerId = ctx.targetPlayerId ?? ctx.actorId;
     if (playerId) {
@@ -122,10 +137,15 @@ function resolveInventories(
 }
 
 function parseSelectMode(mode: string): SelectionMode {
-  if (mode === 'top' || mode === 'bottom' || mode === 'random' || mode === 'all') {
+  if (
+    mode === "top" ||
+    mode === "bottom" ||
+    mode === "random" ||
+    mode === "all"
+  ) {
     return mode;
   }
   // 'player-chooses' will be handled by the flow runner / IO adapter layer
   // For now treat it as 'top' (the flow runner should have resolved it already)
-  return 'top';
+  return "top";
 }

@@ -608,13 +608,21 @@ export type GamepieceSelectInputType = {
   readonly ofType?: string;
   readonly count?: number;
   readonly fromPlayer?: "self" | { param: string };
-  readonly filter?: (session: GameSession, pieceId: string) => boolean;
+  readonly filter?: (
+    session: GameSession,
+    pieceId: string,
+    actorId?: string,
+  ) => boolean;
 };
 
 export type PlayerSelectInputType = {
   readonly kind: "player-select";
   readonly excludeSelf?: boolean;
-  readonly filter?: (session: GameSession, playerId: string) => boolean;
+  readonly filter?: (
+    session: GameSession,
+    playerId: string,
+    actorId?: string,
+  ) => boolean;
 };
 
 export type InventoryPositionInputType = {

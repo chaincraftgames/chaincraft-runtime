@@ -10,12 +10,12 @@
 // once the engine passes the actor through.
 // ---------------------------------------------------------------------------
 
-import type { GamepieceSelectInputType } from '#chaincraft/types.js';
-import type { 
-  GameExecutionState, 
-  EngineInput 
-} from '#chaincraft/orchestration/types.js';
-import { getInventory } from '#chaincraft/inventory/index.js';
+import type { GamepieceSelectInputType } from "#chaincraft/types.js";
+import type {
+  GameExecutionState,
+  EngineInput,
+} from "#chaincraft/orchestration/types.js";
+import { getInventory } from "#chaincraft/inventory/index.js";
 
 /** Determine the valid choices for a player-input prompt. */
 export function resolveOptions(
@@ -26,20 +26,21 @@ export function resolveOptions(
   const type = input.type;
 
   switch (type.kind) {
-    case 'enum':
+    case "enum":
       return [...type.values];
 
-    case 'boolean':
+    case "boolean":
       return [true, false];
 
-    case 'player-select': {
+    case "player-select": {
       let ids = [...state.session.players];
       if (type.excludeSelf && actorId) ids = ids.filter((id) => id !== actorId);
-      if (type.filter) ids = ids.filter((id) => type.filter!(state.session, id));
+      if (type.filter)
+        ids = ids.filter((id) => type.filter!(state.session, id, actorId));
       return ids;
     }
 
-    case 'gamepiece-select':
+    case "gamepiece-select":
       return resolveGamepieceOptions(state, type, actorId);
 
     // Free-form or engine-resolved elsewhere: no finite options.
@@ -58,15 +59,15 @@ function resolveGamepieceOptions(
 ): unknown[] | undefined {
   const { session } = state;
   const invConfig = session.config.inventories[type.inventory];
-  const scope = invConfig?.scope ?? 'game';
+  const scope = invConfig?.scope ?? "game";
 
   // Player-scoped inventory: resolve against the actor (fromPlayer: 'self' or
   // unset). fromPlayer: { param } would need the group's collected inputs,
   // which this signature doesn't carry — return undefined (free-form) rather
   // than a wrong finite list that resume validation would enforce.
   let playerId: string | undefined;
-  if (scope === 'player') {
-    if (type.fromPlayer && type.fromPlayer !== 'self') return undefined;
+  if (scope === "player") {
+    if (type.fromPlayer && type.fromPlayer !== "self") return undefined;
     if (!actorId) return undefined;
     playerId = actorId;
   }
@@ -74,12 +75,14 @@ function resolveGamepieceOptions(
   const inv = getInventory(session, type.inventory, playerId);
   if (!inv) return undefined;
 
-  let ids = inv.select('all');
+  let ids = inv.select("all");
   if (type.ofType) {
-    ids = ids.filter((id) => session.state.gamepieces[id]?.typeId === type.ofType);
+    ids = ids.filter(
+      (id) => session.state.gamepieces[id]?.typeId === type.ofType,
+    );
   }
   if (type.filter) {
-    ids = ids.filter((id) => type.filter!(session, id));
+    ids = ids.filter((id) => type.filter!(session, id, actorId));
   }
   return ids;
 }
