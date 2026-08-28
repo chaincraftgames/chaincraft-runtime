@@ -19,12 +19,17 @@ export type CompiledValueFn = (
   ctx: EffectContext,
 ) => unknown;
 
+type NumericOrVar =
+  | number
+  | { var: string; negate?: boolean }
+  | { expr: CompiledValueFn };
+
 export type PropertyValue =
   | string
   | number
   | boolean
-  | { delta: number | { var: string; negate?: boolean } }
-  | { mult: number | { var: string; negate?: boolean } }
+  | { delta: NumericOrVar }
+  | { mult: NumericOrVar }
   | { toggle: true }
   | { param: string }
   | { actor: true }
@@ -90,6 +95,9 @@ export function resolveValue(
     let deltaAmount: number;
     if (typeof pv.delta === "number") {
       deltaAmount = pv.delta;
+    } else if ("expr" in pv.delta) {
+      const resolved = pv.delta.expr(session, ctx);
+      deltaAmount = typeof resolved === "number" ? resolved : 0;
     } else {
       const resolved = resolveStateVar(session, ctx, pv.delta.var);
       deltaAmount = typeof resolved === "number" ? resolved : 0;
@@ -109,6 +117,9 @@ export function resolveValue(
     let factor: number;
     if (typeof pv.mult === "number") {
       factor = pv.mult;
+    } else if ("expr" in pv.mult) {
+      const resolved = pv.mult.expr(session, ctx);
+      factor = typeof resolved === "number" ? resolved : 0;
     } else {
       const resolved = resolveStateVar(session, ctx, pv.mult.var);
       factor = typeof resolved === "number" ? resolved : 0;

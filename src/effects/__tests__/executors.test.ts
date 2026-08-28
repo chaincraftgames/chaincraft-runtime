@@ -1,4 +1,5 @@
 import type { GameSession, GameState, GameConfig, EffectContext } from '#chaincraft/types.js';
+import type { CompiledValueFn } from '../resolve-value.js';
 import { executeSetState } from '../set-state.js';
 import { executeUpdate } from '../update.js';
 import { executeSetRandom } from '../set-random.js';
@@ -979,6 +980,40 @@ describe('executeUpdate', () => {
     }));
     // 7 * 0.5 = 3.5 → rounds to 4
     expect(session.state.gamepieces['weapon-1'].properties['hitPoints']).toBe(4);
+  });
+
+  it('applies delta with expr reference', async () => {
+    const session = makeSession();
+    session.state.gameProperties['currentRound'] = 3;
+    session.state.gamepieces['weapon-1'].properties['hitPoints'] = 10;
+    session.config.gamepieceTypes['weapon'].properties['hitPoints'] = { mutable: true };
+
+    await executeUpdate(session, makeCtx({
+      effectDef: {
+        pieces: { inventory: 'forge', select: 'top' },
+        property: 'hitPoints',
+        // expr computes currentRound - 1 = 2; delta adds 2 → 12
+        value: { delta: { expr: ((s) => (s.state.gameProperties['currentRound'] as number) - 1) as CompiledValueFn } },
+      },
+    }));
+    expect(session.state.gamepieces['weapon-1'].properties['hitPoints']).toBe(12);
+  });
+
+  it('applies mult with expr reference', async () => {
+    const session = makeSession();
+    session.state.gameProperties['currentRound'] = 3;
+    session.state.gamepieces['weapon-1'].properties['hitPoints'] = 4;
+    session.config.gamepieceTypes['weapon'].properties['hitPoints'] = { mutable: true };
+
+    await executeUpdate(session, makeCtx({
+      effectDef: {
+        pieces: { inventory: 'forge', select: 'top' },
+        property: 'hitPoints',
+        // expr computes currentRound + 1 = 4; mult 4 → 16
+        value: { mult: { expr: ((s) => (s.state.gameProperties['currentRound'] as number) + 1) as CompiledValueFn } },
+      },
+    }));
+    expect(session.state.gamepieces['weapon-1'].properties['hitPoints']).toBe(16);
   });
 });
 
