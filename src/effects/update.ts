@@ -89,7 +89,7 @@ export async function executeUpdate(
         targetId: pieceId,
         actorId: ctx.actorId,
       } satisfies StateWriteEvent;
-      const pending = session.bus?.emitBeforeStateWrite(stateWriteEvent);
+      const pending = session.bus?.emitBeforeStateWrite(stateWriteEvent, session);
       if (pending?.cancelled) {
         session.logger?.info(
           { path, targetId: pieceId },
@@ -109,10 +109,10 @@ export async function executeUpdate(
         );
       }
       piece.properties[property] = finalValue;
-      session.bus?.emitAfterStateWrite({
+      await session.bus?.emitAfterStateWrite({
         ...stateWriteEvent,
         resolvedValue: finalValue,
-      } satisfies StateWriteEvent);
+      } satisfies StateWriteEvent, session);
       session.events.emit({
         kind: "state:change",
         change: {

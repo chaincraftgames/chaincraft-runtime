@@ -136,7 +136,7 @@ export async function executeSetState(
           targetId: playerId,
           actorId: ctx.actorId,
         } satisfies StateWriteEvent;
-        const pending = session.bus?.emitBeforeStateWrite(stateWriteEvent);
+        const pending = session.bus?.emitBeforeStateWrite(stateWriteEvent, session);
         if (pending?.cancelled) {
           session.logger?.info(
             { path, targetId: playerId },
@@ -156,10 +156,10 @@ export async function executeSetState(
           );
         }
         player.properties[key] = finalValue;
-        session.bus?.emitAfterStateWrite({
+        await session.bus?.emitAfterStateWrite({
           ...stateWriteEvent,
           resolvedValue: finalValue,
-        } satisfies StateWriteEvent);
+        } satisfies StateWriteEvent, session);
         session.events.emit({
           kind: "state:change",
           change: {

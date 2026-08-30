@@ -1,31 +1,38 @@
 // ---------------------------------------------------------------------------
 // EffectBus — pub/sub intercept layer for structural events.
 //
-// Passives and reactives subscribe by structural trigger (state-write,
-// move, reveal, skip-turn) with their owner's player ID. Subscriptions are
-// registered when a piece enters a qualifying inventory (or a role is
-// assigned) and removed when it leaves.
+// A dumb router: indexes BeforeEntry/AfterEntry records by event kind and
+// dispatches them at emit time. All scope/owner/trigger matching is the
+// caller's responsibility (see passive-matcher.ts).
 //
-// Scope resolution:
-//   'target' — ownerId matches the entity receiving the effect
-//   'actor'  — ownerId matches the entity causing the effect
-// The bus resolves scope at emit time by comparing ownerId to the event's
-// targetId / actorId / pieceOwnerId fields.
+// Registration:
+//   bus.onBefore(kind, { match, act }) — returns an unsubscribe fn
+//   bus.onAfter(kind,  { match, act }) — returns an unsubscribe fn
+//
+// Dispatch (before):
+//   Iterates entries registered for the event kind. Calls match(event,
+//   session); if true, calls act(pending, event, session). Short-circuits
+//   once pending.cancelled is true.
+//
+// Dispatch (after):
+//   Iterates entries registered for the event kind. Calls match then act.
+//   No cancel concept.
 //
 // Two tiers of pending effect:
 //   PendingEffect          — cancel-only (move, reveal, skip-turn)
-//   ModifiablePendingEffect — also supports adjust() (state-write)
+//   AdjustablePendingEffect — also supports adjust() (state-write)
 //
 // Adjust semantics (state-write only):
 //   delta — additive: modifiedValue += adj.delta
 //   mult  — multiplicative: modifiedValue *= adj.mult
-// Multiple adjustments accumulate in subscription order. Rounding is left
-// to the executor.
+// Multiple adjustments accumulate in entry order. Rounding is left to the executor.
 //
 // emitBefore* methods create the PendingEffect internally and return it.
-// Executors check .cancelled before applying and use .modifiedValue for
+// Executors check .cancelled before applying and use .adjustedValue for
 // the final write.
 // ---------------------------------------------------------------------------
+
+import type { GameSession } from "#chaincraft/types.js";
 
 // ---------------------------------------------------------------------------
 // Local trigger types
@@ -34,16 +41,16 @@
 // ---------------------------------------------------------------------------
 
 export type StateWriteTrigger = {
-  kind: 'state-write';
-  scope: 'target' | 'actor';
+  kind: "state-write";
+  scope: "target" | "actor";
   /** State path, e.g. 'player.property.hp'. */
   path: string;
-  direction: 'increase' | 'decrease' | 'any';
+  direction: "increase" | "decrease" | "any";
 };
 
 export type MoveTrigger = {
-  kind: 'move';
-  scope: 'target' | 'actor';
+  kind: "move";
+  scope: "target" | "actor";
   /** Restrict to moves from these inventory type IDs. Omit = any source. */
   fromInventory?: string[];
   /** Restrict to moves to these inventory type IDs. Omit = any destination. */
@@ -51,29 +58,33 @@ export type MoveTrigger = {
 };
 
 export type RevealTrigger = {
-  kind: 'reveal';
-  scope: 'target' | 'actor';
+  kind: "reveal";
+  scope: "target" | "actor";
   /** Restrict to pieces in these inventory type IDs. Omit = any. */
   inventory?: string[];
 };
 
 export type SkipTurnTrigger = {
-  kind: 'skip-turn';
+  kind: "skip-turn";
   // Always target-scoped — ownerId must match the skipped player.
 };
 
-export type PassiveTrigger = StateWriteTrigger | MoveTrigger | RevealTrigger | SkipTurnTrigger;
+export type PassiveTrigger =
+  | StateWriteTrigger
+  | MoveTrigger
+  | RevealTrigger
+  | SkipTurnTrigger;
 
 // ---------------------------------------------------------------------------
 // Structural event types (emitted by executors)
 // ---------------------------------------------------------------------------
 
 export interface StateWriteEvent {
-  kind: 'state-write';
+  kind: "state-write";
   /** State path written, e.g. 'player.property.hp'. */
   path: string;
   /** Whether the new value is higher or lower than the old value. */
-  direction: 'increase' | 'decrease';
+  direction: "increase" | "decrease";
   /** ID of the player/piece whose property was written. */
   targetId: string;
   /** ID of the player/piece who caused the write. */
@@ -83,7 +94,7 @@ export interface StateWriteEvent {
 }
 
 export interface MoveEvent {
-  kind: 'move';
+  kind: "move";
   /** Inventory type ID the piece came from. */
   fromInventoryType: string;
   /** Inventory type ID the piece was moved to. */
@@ -95,7 +106,7 @@ export interface MoveEvent {
 }
 
 export interface RevealEvent {
-  kind: 'reveal';
+  kind: "reveal";
   /** Inventory type ID where the revealed piece lives. */
   inventoryType: string;
   /** Player ID who owns the piece being revealed. */
@@ -105,18 +116,22 @@ export interface RevealEvent {
 }
 
 export interface SkipTurnEvent {
-  kind: 'skip-turn';
+  kind: "skip-turn";
   /** Player whose turn is being skipped. */
   targetId: string;
 }
 
-export type EffectEvent = StateWriteEvent | MoveEvent | RevealEvent | SkipTurnEvent;
+export type EffectEvent =
+  | StateWriteEvent
+  | MoveEvent
+  | RevealEvent
+  | SkipTurnEvent;
 
 // ---------------------------------------------------------------------------
 // Pending effect interfaces
 // ---------------------------------------------------------------------------
 
-export type EventKind = 'state-write' | 'move' | 'reveal' | 'skip-turn';
+export type EventKind = "state-write" | "move" | "reveal" | "skip-turn";
 
 export interface PendingEffect {
   /** The structural kind of event being intercepted. */
@@ -142,11 +157,23 @@ export interface AdjustablePendingEffect extends PendingEffect {
 }
 
 // ---------------------------------------------------------------------------
-// Handler types
+// Handler entry types
 // ---------------------------------------------------------------------------
 
-export type BeforeHandler = (pending: PendingEffect) => void;
-export type AfterHandler  = (event: EffectEvent) => void;
+export interface BeforeEntry {
+  match: (event: EffectEvent, session: GameSession) => boolean;
+  act: (
+    pending: PendingEffect,
+    event: EffectEvent,
+    session: GameSession,
+  ) => void;
+}
+
+export interface AfterEntry {
+  match: (event: EffectEvent, session: GameSession) => boolean;
+  // may return a Promise; bus calls without await (inline-pragmatic for demo scope)
+  act: (event: EffectEvent, session: GameSession) => void | Promise<void>;
+}
 
 // ---------------------------------------------------------------------------
 // Concrete implementations
@@ -155,29 +182,41 @@ export type AfterHandler  = (event: EffectEvent) => void;
 class PendingEffectImpl implements PendingEffect {
   private _cancelled = false;
   constructor(readonly kind: EventKind) {}
-  cancel(): void { this._cancelled = true; }
-  get cancelled(): boolean { return this._cancelled; }
+  cancel(): void {
+    this._cancelled = true;
+  }
+  get cancelled(): boolean {
+    return this._cancelled;
+  }
 }
 
-class AdjustablePendingEffectImpl extends PendingEffectImpl implements AdjustablePendingEffect {
+class AdjustablePendingEffectImpl
+  extends PendingEffectImpl
+  implements AdjustablePendingEffect
+{
   private _modifiedValue: number;
 
-  constructor(kind: EventKind, readonly resolvedValue: number) {
+  constructor(
+    kind: EventKind,
+    readonly resolvedValue: number,
+  ) {
     super(kind);
     this._modifiedValue = resolvedValue;
   }
 
   adjust(adj: { delta: number } | { mult: number }): void {
-    if ('delta' in adj) {
+    if ("delta" in adj) {
       this._modifiedValue += adj.delta;
     } else {
       this._modifiedValue *= adj.mult;
     }
   }
 
-  get adjustedValue(): number { return this._modifiedValue; }
+  get adjustedValue(): number {
+    return this._modifiedValue;
+  }
 }
- 
+
 // ---------------------------------------------------------------------------
 // Factory functions (useful for testing handlers in isolation)
 // ---------------------------------------------------------------------------
@@ -194,139 +233,78 @@ export function createAdjustablePendingEffect(
 }
 
 // ---------------------------------------------------------------------------
-// Trigger matching
-// ---------------------------------------------------------------------------
-
-function matchesTrigger(
-  trigger: PassiveTrigger,
-  ownerId: string,
-  event: EffectEvent,
-): boolean {
-  if (trigger.kind !== event.kind) return false;
-
-  // skip-turn is always target-scoped — ownerId must be the skipped player
-  if (trigger.kind === 'skip-turn') {
-    return (event as SkipTurnEvent).targetId === ownerId;
-  }
-
-  const isTarget =
-    event.kind === 'state-write' ? event.targetId === ownerId :
-    event.kind === 'move'        ? event.pieceOwnerId === ownerId :
-    event.kind === 'reveal'      ? event.pieceOwnerId === ownerId :
-    false;
-
-  const isActor =
-    event.kind === 'state-write' ? event.actorId === ownerId :
-    event.kind === 'move'        ? event.actorId === ownerId :
-    event.kind === 'reveal'      ? event.actorId === ownerId :
-    false;
-
-  if (trigger.scope === 'target' && !isTarget) return false;
-  if (trigger.scope === 'actor'  && !isActor)  return false;
-
-  // Kind-specific filter matching
-  if (trigger.kind === 'state-write' && event.kind === 'state-write') {
-    if (trigger.path !== event.path) return false;
-    if (trigger.direction !== 'any' && trigger.direction !== event.direction) return false;
-  }
-
-  if (trigger.kind === 'move' && event.kind === 'move') {
-    if (trigger.fromInventory && !trigger.fromInventory.includes(event.fromInventoryType)) return false;
-    if (trigger.toInventory   && !trigger.toInventory.includes(event.toInventoryType))     return false;
-  }
-
-  if (trigger.kind === 'reveal' && event.kind === 'reveal') {
-    if (trigger.inventory && !trigger.inventory.includes(event.inventoryType)) return false;
-  }
-
-  return true;
-}
-
-// ---------------------------------------------------------------------------
-// Subscription entry (internal)
-// ---------------------------------------------------------------------------
-
-interface SubscriptionEntry<H> {
-  trigger: PassiveTrigger;
-  ownerId: string;
-  handler: H;
-}
-
-// ---------------------------------------------------------------------------
 // EffectBus
 // ---------------------------------------------------------------------------
 
 export class EffectBus {
-  private readonly before: SubscriptionEntry<BeforeHandler>[] = [];
-  private readonly after:  SubscriptionEntry<AfterHandler>[]  = [];
+  private readonly before: Partial<Record<EventKind, BeforeEntry[]>> = {};
+  private readonly after: Partial<Record<EventKind, AfterEntry[]>> = {};
 
-  /**
-   * Subscribe to before-signals matching the given structural trigger.
-   * ownerId is the player holding the passive/reactive piece — used to resolve
-   * trigger.scope (target vs actor) at match time.
-   * Returns an unsubscribe function; call it when the passive deactivates.
-   */
-  onBefore(trigger: PassiveTrigger, ownerId: string, handler: BeforeHandler): () => void {
-    const entry: SubscriptionEntry<BeforeHandler> = { trigger, ownerId, handler };
-    this.before.push(entry);
+  /** Returns an unsubscribe function. */
+  onBefore(kind: EventKind, entry: BeforeEntry): () => void {
+    const list = (this.before[kind] ??= []);
+    list.push(entry);
     return () => {
-      const idx = this.before.indexOf(entry);
-      if (idx >= 0) this.before.splice(idx, 1);
+      const idx = list.indexOf(entry);
+      if (idx >= 0) list.splice(idx, 1);
     };
   }
 
-  /**
-   * Subscribe to after-signals matching the given structural trigger.
-   * Returns an unsubscribe function.
-   */
-  onAfter(trigger: PassiveTrigger, ownerId: string, handler: AfterHandler): () => void {
-    const entry: SubscriptionEntry<AfterHandler> = { trigger, ownerId, handler };
-    this.after.push(entry);
+  /** Returns an unsubscribe function. */
+  onAfter(kind: EventKind, entry: AfterEntry): () => void {
+    const list = (this.after[kind] ??= []);
+    list.push(entry);
     return () => {
-      const idx = this.after.indexOf(entry);
-      if (idx >= 0) this.after.splice(idx, 1);
+      const idx = list.indexOf(entry);
+      if (idx >= 0) list.splice(idx, 1);
     };
   }
 
   // ---------------------------------------------------------------------------
   // Before emitters — called by executors before applying the effect.
   // Creates and returns the PendingEffect; executor checks .cancelled and
-  // uses .modifiedValue for the final write.
+  // uses .adjustedValue for the final write.
   // ---------------------------------------------------------------------------
 
-  emitBeforeStateWrite(event: StateWriteEvent): AdjustablePendingEffect {
-    const pending = new AdjustablePendingEffectImpl('state-write', event.resolvedValue);
-    for (const sub of [...this.before]) {  // ← shallow copy
-        if (pending.cancelled) break;
-        if (matchesTrigger(sub.trigger, sub.ownerId, event)) sub.handler(pending);
+  emitBeforeStateWrite(
+    event: StateWriteEvent,
+    session: GameSession,
+  ): AdjustablePendingEffect {
+    const pending = new AdjustablePendingEffectImpl(
+      "state-write",
+      event.resolvedValue,
+    );
+    for (const entry of [...(this.before["state-write"] ?? [])]) {
+      if (pending.cancelled) break;
+      if (entry.match(event, session)) entry.act(pending, event, session);
     }
     return pending;
   }
 
-  emitBeforeMove(event: MoveEvent): PendingEffect {
-    const pending = new PendingEffectImpl('move');
-    for (const sub of [...this.before]) {  // ← shallow copy
-        if (pending.cancelled) break;
-        if (matchesTrigger(sub.trigger, sub.ownerId, event)) sub.handler(pending);
+  emitBeforeMove(event: MoveEvent, session: GameSession): PendingEffect {
+    const pending = new PendingEffectImpl("move");
+    for (const entry of [...(this.before["move"] ?? [])]) {
+      if (pending.cancelled) break;
+      if (entry.match(event, session)) entry.act(pending, event, session);
     }
     return pending;
   }
 
-  emitBeforeReveal(event: RevealEvent): PendingEffect {
-    const pending = new PendingEffectImpl('reveal');
-    for (const sub of [...this.before]) {  // ← shallow copy
-        if (pending.cancelled) break;
-        if (matchesTrigger(sub.trigger, sub.ownerId, event)) sub.handler(pending);
+  emitBeforeReveal(event: RevealEvent, session: GameSession): PendingEffect {
+    const pending = new PendingEffectImpl("reveal");
+    for (const entry of [...(this.before["reveal"] ?? [])]) {
+      if (pending.cancelled) break;
+      if (entry.match(event, session)) entry.act(pending, event, session);
     }
     return pending;
   }
 
-  emitBeforeSkipTurn(targetId: string): PendingEffect {
-    const event: SkipTurnEvent = { kind: 'skip-turn', targetId };
-    const pending = new PendingEffectImpl('skip-turn');
-    for (const sub of [...this.before]) {  // ← shallow copy
-        if (pending.cancelled) break;
-        if (matchesTrigger(sub.trigger, sub.ownerId, event)) sub.handler(pending);
+  emitBeforeSkipTurn(targetId: string, session: GameSession): PendingEffect {
+    const event: SkipTurnEvent = { kind: "skip-turn", targetId };
+    const pending = new PendingEffectImpl("skip-turn");
+    for (const entry of [...(this.before["skip-turn"] ?? [])]) {
+      if (pending.cancelled) break;
+      if (entry.match(event, session)) entry.act(pending, event, session);
     }
     return pending;
   }
@@ -335,28 +313,40 @@ export class EffectBus {
   // After emitters — called by executors after successfully applying the effect.
   // ---------------------------------------------------------------------------
 
-  emitAfterStateWrite(event: StateWriteEvent): void {
-    for (const sub of [...this.after]) {  // ← shallow copy
-      if (matchesTrigger(sub.trigger, sub.ownerId, event)) sub.handler(event);
+  async emitAfterStateWrite(event: StateWriteEvent, session: GameSession): Promise<void> {
+    for (const entry of [...(this.after["state-write"] ?? [])]) {
+      if (entry.match(event, session)) {
+        const r = entry.act(event, session);
+        if (r) await r;
+      }
     }
   }
 
-  emitAfterMove(event: MoveEvent): void {
-    for (const sub of [...this.after]) {  // ← shallow copy
-      if (matchesTrigger(sub.trigger, sub.ownerId, event)) sub.handler(event);
+  async emitAfterMove(event: MoveEvent, session: GameSession): Promise<void> {
+    for (const entry of [...(this.after["move"] ?? [])]) {
+      if (entry.match(event, session)) {
+        const r = entry.act(event, session);
+        if (r) await r;
+      }
     }
   }
 
-  emitAfterReveal(event: RevealEvent): void {
-    for (const sub of [...this.after]) {  // ← shallow copy
-      if (matchesTrigger(sub.trigger, sub.ownerId, event)) sub.handler(event);
+  async emitAfterReveal(event: RevealEvent, session: GameSession): Promise<void> {
+    for (const entry of [...(this.after["reveal"] ?? [])]) {
+      if (entry.match(event, session)) {
+        const r = entry.act(event, session);
+        if (r) await r;
+      }
     }
   }
 
-  emitAfterSkipTurn(targetId: string): void {
-    const event: SkipTurnEvent = { kind: 'skip-turn', targetId };
-    for (const sub of [...this.after]) {  // ← shallow copy
-      if (matchesTrigger(sub.trigger, sub.ownerId, event)) sub.handler(event);
+  async emitAfterSkipTurn(targetId: string, session: GameSession): Promise<void> {
+    const event: SkipTurnEvent = { kind: "skip-turn", targetId };
+    for (const entry of [...(this.after["skip-turn"] ?? [])]) {
+      if (entry.match(event, session)) {
+        const r = entry.act(event, session);
+        if (r) await r;
+      }
     }
   }
 }

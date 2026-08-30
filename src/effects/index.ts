@@ -33,8 +33,8 @@ export type {
   EventKind,
   PendingEffect,
   AdjustablePendingEffect as ModifiablePendingEffect,
-  BeforeHandler,
-  AfterHandler,
+  BeforeEntry,
+  AfterEntry,
 } from "#chaincraft/effects/effect-bus.js";
 export { selectGamepieces } from "#chaincraft/effects/gamepiece-selector.js";
 export { resolvePlayerTarget } from "#chaincraft/effects/player-target.js";
@@ -44,3 +44,7 @@ export type {
   PropertyValue,
   CompiledValueFn,
 } from "#chaincraft/effects/resolve-value.js";
+export {
+  matchesPassiveActivation,
+} from "#chaincraft/effects/passive-matcher.js";
+export { registerPassiveActivations } from "#chaincraft/effects/register-passives.js";

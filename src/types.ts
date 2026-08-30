@@ -1,5 +1,5 @@
 import { Logger } from "#chaincraft/logger.js";
-import { EffectBus } from "#chaincraft/effects/effect-bus.js";
+import { EffectBus, PassiveTrigger } from "#chaincraft/effects/effect-bus.js";
 // ---------------------------------------------------------------------------
 // Entity reference types
 // ---------------------------------------------------------------------------
@@ -671,6 +671,44 @@ export interface PlayerCount {
   max: number;
 }
 
+// ---------------------------------------------------------------------------
+// PassiveBinding / PassiveActivation
+// ---------------------------------------------------------------------------
+
+/** Identifies what a passive is bound to: a specific piece instance or a player role. */
+export type PassiveBinding =
+  | { readonly kind: "piece"; readonly pieceId: string }
+  | { readonly kind: "role";  readonly roleId: string };
+
+/** Flattened compile-time record produced by the compiler, one per passive binding. */
+export interface PassiveActivation {
+  /** What this passive is bound to — a piece instance or a role. */
+  readonly binding: PassiveBinding;
+  readonly passiveId: string;
+  /** Absent for role passives (no slot). */
+  readonly slotId?: string;
+  /** The passive trigger that activates this passive. */
+  readonly trigger: PassiveTrigger;
+  /** 'before' — intercepts the effect (cancel/adjust); 'after' — reacts after it resolves. */
+  readonly timing: "before" | "after";
+  /** The compiled effect bodies for this passive. */
+  readonly compiledEffects: Record<string, unknown>[];
+}
+
+/** Passive activation for a piece — includes additional constraints and condition. */
+export interface PassivePieceActivation extends PassiveActivation {
+  /** Only applies when the passive is bound to a piece. */
+  readonly enabledIn?: string[];
+  readonly faceFilter?: "any" | "face-up-only" | "face-down-only";
+  readonly exhaustedFilter?: "any" | "ready-only" | "exhausted-only";
+  /** Compiled from slot.condition; uses piece.property.* paths. */
+  readonly condition?: (
+    session: GameSession,
+    pieceId: string,
+    actorId?: string,
+  ) => boolean;
+}
+
 export interface CompiledGameModule {
   readonly specId: string;
   readonly metadata: { name: string; playerCount: PlayerCount };
@@ -689,4 +727,7 @@ export interface CompiledGameModule {
 
   /** Action definitions, keyed by action id. */
   readonly actions: Record<string, ActionDef>;
+
+  /** Passive bindings compiled from catalog — registered on the EffectBus at session init. */
+  readonly passiveActivations?: PassiveActivation[];
 }

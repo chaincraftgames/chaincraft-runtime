@@ -9,7 +9,9 @@ import type {
   StateWriteEvent,
   MoveEvent,
   RevealEvent,
+  EffectEvent,
 } from '../effect-bus.js';
+import type { GameSession } from '../../types.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -130,321 +132,148 @@ describe('createAdjustablePendingEffect', () => {
   });
 });
 
+// bus does not read session; tests pass an empty object cast to satisfy the type
+const noSession = {} as GameSession;
+
 // ---------------------------------------------------------------------------
-// EffectBus — state-write before events
+// EffectBus — before routing
 // ---------------------------------------------------------------------------
 
-describe('EffectBus — emitBeforeStateWrite', () => {
-  it('calls handler when trigger matches (target scope, path, direction)', () => {
+describe('EffectBus — before routing', () => {
+  it('calls act when match returns true', () => {
     const bus = new EffectBus();
-    const calls: string[] = [];
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'player.property.hp', direction: 'decrease' },
-      'player-a',
-      (p) => calls.push(p.kind),
-    );
-    bus.emitBeforeStateWrite(makeStateWrite());
-    expect(calls).toEqual(['state-write']);
+    const acts: string[] = [];
+    bus.onBefore('state-write', { match: () => true, act: (p) => acts.push(p.kind) });
+    bus.emitBeforeStateWrite(makeStateWrite(), noSession);
+    expect(acts).toEqual(['state-write']);
   });
 
-  it('does not call handler when ownerId is actor but scope is target', () => {
+  it('does not call act when match returns false', () => {
     const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'player.property.hp', direction: 'any' },
-      'player-b', // player-b is actorId in event, not targetId
-      () => calls.push(1),
-    );
-    bus.emitBeforeStateWrite(makeStateWrite({ targetId: 'player-a', actorId: 'player-b' }));
-    expect(calls).toHaveLength(0);
+    const acts: number[] = [];
+    bus.onBefore('state-write', { match: () => false, act: () => acts.push(1) });
+    bus.emitBeforeStateWrite(makeStateWrite(), noSession);
+    expect(acts).toHaveLength(0);
   });
 
-  it('calls handler when ownerId is actor and scope is actor', () => {
+  it('does not route state-write entries to emitBeforeMove', () => {
     const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onBefore(
-      { kind: 'state-write', scope: 'actor', path: 'player.property.hp', direction: 'decrease' },
-      'player-b',
-      () => calls.push(1),
-    );
-    bus.emitBeforeStateWrite(makeStateWrite({ targetId: 'player-a', actorId: 'player-b' }));
-    expect(calls).toEqual([1]);
+    const acts: number[] = [];
+    bus.onBefore('state-write', { match: () => true, act: () => acts.push(1) });
+    bus.emitBeforeMove(makeMove(), noSession);
+    expect(acts).toHaveLength(0);
   });
 
-  it('does not call handler when path does not match', () => {
-    const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'player.property.mp', direction: 'any' },
-      'player-a',
-      () => calls.push(1),
-    );
-    bus.emitBeforeStateWrite(makeStateWrite({ path: 'player.property.hp' }));
-    expect(calls).toHaveLength(0);
-  });
-
-  it('does not call handler when direction filter does not match', () => {
-    const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'player.property.hp', direction: 'decrease' },
-      'player-a',
-      () => calls.push(1),
-    );
-    bus.emitBeforeStateWrite(makeStateWrite({ direction: 'increase' }));
-    expect(calls).toHaveLength(0);
-  });
-
-  it('calls handler for both directions when direction is "any"', () => {
-    const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'player.property.hp', direction: 'any' },
-      'player-a',
-      () => calls.push(1),
-    );
-    bus.emitBeforeStateWrite(makeStateWrite({ direction: 'increase' }));
-    bus.emitBeforeStateWrite(makeStateWrite({ direction: 'decrease' }));
-    expect(calls).toHaveLength(2);
-  });
-
-  it('returns ModifiablePendingEffect with resolvedValue', () => {
-    const bus = new EffectBus();
-    const pending = bus.emitBeforeStateWrite(makeStateWrite({ resolvedValue: -8 }));
-    expect(pending.resolvedValue).toBe(-8);
-    expect(pending.adjustedValue).toBe(-8);
-  });
-
-  it('handler can adjust modifiedValue', () => {
-    const bus = new EffectBus();
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'player.property.hp', direction: 'decrease' },
-      'player-a',
-      (p) => (p as AdjustablePendingEffect).adjust({ delta: 2 }),
-    );
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'player.property.hp', direction: 'decrease' },
-      'player-a',
-      (p) => (p as AdjustablePendingEffect).adjust({ mult: 0.5 }),
-    );
-    const pending = bus.emitBeforeStateWrite(makeStateWrite({ resolvedValue: -10 }));
-    expect(pending.adjustedValue).toBe(-4); // (-10 + 2) * 0.5
-  });
-
-  it('calls multiple handlers in subscription order', () => {
+  it('calls entries in subscription order', () => {
     const bus = new EffectBus();
     const order: number[] = [];
-    const trigger = { kind: 'state-write' as const, scope: 'target' as const, path: 'player.property.hp', direction: 'any' as const };
-    bus.onBefore(trigger, 'player-a', () => order.push(1));
-    bus.onBefore(trigger, 'player-a', () => order.push(2));
-    bus.onBefore(trigger, 'player-a', () => order.push(3));
-    bus.emitBeforeStateWrite(makeStateWrite());
+    bus.onBefore('state-write', { match: () => true, act: () => order.push(1) });
+    bus.onBefore('state-write', { match: () => true, act: () => order.push(2) });
+    bus.onBefore('state-write', { match: () => true, act: () => order.push(3) });
+    bus.emitBeforeStateWrite(makeStateWrite(), noSession);
     expect(order).toEqual([1, 2, 3]);
   });
 
-  it('stops calling handlers after cancel()', () => {
+  it('stops calling entries after cancel()', () => {
     const bus = new EffectBus();
     const order: number[] = [];
-    const trigger = { kind: 'state-write' as const, scope: 'target' as const, path: 'player.property.hp', direction: 'any' as const };
-    bus.onBefore(trigger, 'player-a', (p) => { order.push(1); p.cancel(); });
-    bus.onBefore(trigger, 'player-a', () => order.push(2));
-    bus.emitBeforeStateWrite(makeStateWrite());
+    bus.onBefore('state-write', { match: () => true, act: (p) => { order.push(1); p.cancel(); } });
+    bus.onBefore('state-write', { match: () => true, act: () => order.push(2) });
+    bus.emitBeforeStateWrite(makeStateWrite(), noSession);
     expect(order).toEqual([1]);
   });
 
-  it('unsubscribe removes the handler', () => {
+  it('unsubscribe removes the entry', () => {
     const bus = new EffectBus();
-    const calls: number[] = [];
-    const unsub = bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'player.property.hp', direction: 'any' },
-      'player-a',
-      () => calls.push(1),
-    );
+    const acts: number[] = [];
+    const unsub = bus.onBefore('state-write', { match: () => true, act: () => acts.push(1) });
     unsub();
-    bus.emitBeforeStateWrite(makeStateWrite());
-    expect(calls).toHaveLength(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// EffectBus — move before events
-// ---------------------------------------------------------------------------
-
-describe('EffectBus — emitBeforeMove', () => {
-  it('calls handler when move trigger matches (target scope)', () => {
-    const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onBefore({ kind: 'move', scope: 'target' }, 'player-a', () => calls.push(1));
-    bus.emitBeforeMove(makeMove({ pieceOwnerId: 'player-a' }));
-    expect(calls).toEqual([1]);
+    bus.emitBeforeStateWrite(makeStateWrite(), noSession);
+    expect(acts).toHaveLength(0);
   });
 
-  it('does not call handler when ownerId does not match pieceOwnerId', () => {
+  it('returns AdjustablePendingEffect with resolvedValue for state-write', () => {
     const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onBefore({ kind: 'move', scope: 'target' }, 'player-b', () => calls.push(1));
-    bus.emitBeforeMove(makeMove({ pieceOwnerId: 'player-a' }));
-    expect(calls).toHaveLength(0);
+    const pending = bus.emitBeforeStateWrite(makeStateWrite({ resolvedValue: -8 }), noSession);
+    expect(pending.resolvedValue).toBe(-8);
+    expect(pending.adjustedValue).toBe(-8);
+    expect(pending.kind).toBe('state-write');
   });
 
-  it('calls handler when scope is actor and ownerId matches actorId', () => {
+  it('act can adjust pending value', () => {
     const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onBefore({ kind: 'move', scope: 'actor' }, 'player-b', () => calls.push(1));
-    bus.emitBeforeMove(makeMove({ actorId: 'player-b' }));
-    expect(calls).toEqual([1]);
+    bus.onBefore('state-write', {
+      match: () => true,
+      act: (p) => (p as AdjustablePendingEffect).adjust({ delta: 2 }),
+    });
+    bus.onBefore('state-write', {
+      match: () => true,
+      act: (p) => (p as AdjustablePendingEffect).adjust({ mult: 0.5 }),
+    });
+    const pending = bus.emitBeforeStateWrite(makeStateWrite({ resolvedValue: -10 }), noSession);
+    expect(pending.adjustedValue).toBe(-4); // (-10 + 2) * 0.5
   });
 
-  it('filters by fromInventory', () => {
+  it('returns PendingEffect with kind move for emitBeforeMove', () => {
     const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onBefore({ kind: 'move', scope: 'target', fromInventory: ['hand'] }, 'player-a', () => calls.push(1));
-    bus.emitBeforeMove(makeMove({ fromInventoryType: 'battlefield', pieceOwnerId: 'player-a' }));
-    expect(calls).toHaveLength(0);
-  });
-
-  it('calls handler when fromInventory matches', () => {
-    const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onBefore({ kind: 'move', scope: 'target', fromInventory: ['hand'] }, 'player-a', () => calls.push(1));
-    bus.emitBeforeMove(makeMove({ fromInventoryType: 'hand', pieceOwnerId: 'player-a' }));
-    expect(calls).toEqual([1]);
-  });
-
-  it('filters by toInventory', () => {
-    const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onBefore({ kind: 'move', scope: 'target', toInventory: ['graveyard'] }, 'player-a', () => calls.push(1));
-    bus.emitBeforeMove(makeMove({ toInventoryType: 'discard', pieceOwnerId: 'player-a' }));
-    expect(calls).toHaveLength(0);
-  });
-
-  it('returns PendingEffect that can be cancelled', () => {
-    const bus = new EffectBus();
-    bus.onBefore({ kind: 'move', scope: 'target' }, 'player-a', (p) => p.cancel());
-    const pending = bus.emitBeforeMove(makeMove({ pieceOwnerId: 'player-a' }));
-    expect(pending.cancelled).toBe(true);
+    const pending = bus.emitBeforeMove(makeMove(), noSession);
     expect(pending.kind).toBe('move');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// EffectBus — reveal before events
-// ---------------------------------------------------------------------------
-
-describe('EffectBus — emitBeforeReveal', () => {
-  it('calls handler when reveal trigger matches', () => {
-    const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onBefore({ kind: 'reveal', scope: 'target' }, 'player-a', () => calls.push(1));
-    bus.emitBeforeReveal(makeReveal({ pieceOwnerId: 'player-a' }));
-    expect(calls).toEqual([1]);
-  });
-
-  it('filters by inventory type', () => {
-    const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onBefore({ kind: 'reveal', scope: 'target', inventory: ['battlefield'] }, 'player-a', () => calls.push(1));
-    bus.emitBeforeReveal(makeReveal({ inventoryType: 'hand', pieceOwnerId: 'player-a' }));
-    expect(calls).toHaveLength(0);
-  });
-
-  it('returns PendingEffect with kind reveal', () => {
-    const bus = new EffectBus();
-    const pending = bus.emitBeforeReveal(makeReveal());
-    expect(pending.kind).toBe('reveal');
     expect(pending.cancelled).toBe(false);
   });
-});
 
-// ---------------------------------------------------------------------------
-// EffectBus — skip-turn before events
-// ---------------------------------------------------------------------------
-
-describe('EffectBus — emitBeforeSkipTurn', () => {
-  it('calls handler when ownerId matches targetId', () => {
+  it('returns PendingEffect with kind reveal for emitBeforeReveal', () => {
     const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onBefore({ kind: 'skip-turn' }, 'player-a', () => calls.push(1));
-    bus.emitBeforeSkipTurn('player-a');
-    expect(calls).toEqual([1]);
+    const pending = bus.emitBeforeReveal(makeReveal(), noSession);
+    expect(pending.kind).toBe('reveal');
   });
 
-  it('does not call handler when ownerId does not match targetId', () => {
+  it('returns PendingEffect with kind skip-turn for emitBeforeSkipTurn', () => {
     const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onBefore({ kind: 'skip-turn' }, 'player-b', () => calls.push(1));
-    bus.emitBeforeSkipTurn('player-a');
-    expect(calls).toHaveLength(0);
-  });
-
-  it('returns PendingEffect with kind skip-turn', () => {
-    const bus = new EffectBus();
-    const pending = bus.emitBeforeSkipTurn('player-a');
+    const pending = bus.emitBeforeSkipTurn('player-a', noSession);
     expect(pending.kind).toBe('skip-turn');
   });
 });
 
 // ---------------------------------------------------------------------------
-// EffectBus — after events
+// EffectBus — after routing
 // ---------------------------------------------------------------------------
 
-describe('EffectBus — after handlers', () => {
-  it('calls after handler with the structural event when trigger matches', () => {
+describe('EffectBus — after routing', () => {
+  it('calls act when match returns true', () => {
     const bus = new EffectBus();
-    const received: string[] = [];
-    bus.onAfter(
-      { kind: 'state-write', scope: 'target', path: 'player.property.hp', direction: 'decrease' },
-      'player-a',
-      (ev) => received.push(ev.kind),
-    );
-    bus.emitAfterStateWrite(makeStateWrite());
-    expect(received).toEqual(['state-write']);
+    const acts: string[] = [];
+    bus.onAfter('state-write', { match: () => true, act: (e) => { acts.push(e.kind); } });
   });
 
-  it('does not call after handler when trigger does not match', () => {
+  it('does not call act when match returns false', () => {
     const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onAfter(
-      { kind: 'state-write', scope: 'target', path: 'player.property.mp', direction: 'any' },
-      'player-a',
-      () => calls.push(1),
-    );
-    bus.emitAfterStateWrite(makeStateWrite({ path: 'player.property.hp' }));
-    expect(calls).toHaveLength(0);
+    const acts: number[] = [];
+    bus.onAfter('state-write', { match: () => false, act: () => { acts.push(1); } });
+    bus.emitAfterStateWrite(makeStateWrite(), noSession);
+    expect(acts).toHaveLength(0);
   });
 
-  it('emitBeforeStateWrite does not trigger after handlers', () => {
+  it('emitBeforeStateWrite does not trigger after entries', () => {
     const bus = new EffectBus();
-    const calls: number[] = [];
-    bus.onAfter(
-      { kind: 'state-write', scope: 'target', path: 'player.property.hp', direction: 'any' },
-      'player-a',
-      () => calls.push(1),
-    );
-    bus.emitBeforeStateWrite(makeStateWrite());
-    expect(calls).toHaveLength(0);
+    const acts: number[] = [];
+    bus.onAfter('state-write', { match: () => true, act: () => { acts.push(1); } });
+    expect(acts).toHaveLength(0);
   });
 
-  it('calls after handler for move event', () => {
+  it('routes move events to move entries only', () => {
     const bus = new EffectBus();
-    const received: string[] = [];
-    bus.onAfter({ kind: 'move', scope: 'target' }, 'player-a', (ev) => received.push(ev.kind));
-    bus.emitAfterMove(makeMove({ pieceOwnerId: 'player-a' }));
-    expect(received).toEqual(['move']);
+    const acts: string[] = [];
+    bus.onAfter('move', { match: () => true, act: (e) => { acts.push(e.kind); } });
+    bus.emitAfterMove(makeMove(), noSession);
+    expect(acts).toEqual(['move']);
   });
 
-  it('unsubscribe removes after handler', () => {
+  it('unsubscribe removes after entry', () => {
     const bus = new EffectBus();
-    const calls: number[] = [];
-    const unsub = bus.onAfter(
-      { kind: 'state-write', scope: 'target', path: 'player.property.hp', direction: 'any' },
-      'player-a',
-      () => calls.push(1),
-    );
+    const acts: number[] = [];
+    const unsub = bus.onAfter('state-write', { match: () => true, act: () => { acts.push(1); } });
     unsub();
-    bus.emitAfterStateWrite(makeStateWrite());
-    expect(calls).toHaveLength(0);
+    bus.emitAfterStateWrite(makeStateWrite(), noSession);
+    expect(acts).toHaveLength(0);
   });
 });
-

@@ -393,11 +393,11 @@ describe('executeSetState', () => {
     session.state.players['p1'].properties['roundsWon'] = 5;
 
     // Register a passive that blocks damage (decrease)
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'decrease' },
-      'p1',
-      (pending) => pending.cancel(),
-    );
+    bus.onBefore('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'player.property.roundsWon'
+        && e.direction === 'decrease' && e.targetId === 'p1',
+      act: (pending) => pending.cancel(),
+    });
 
     // Try to decrease p1's roundsWon
     await executeSetState(session, makeCtx({
@@ -415,11 +415,10 @@ describe('executeSetState', () => {
     session.state.players['p1'].properties['roundsWon'] = 10;
 
     // Register a passive that adds +2 to the resolved value (like a heal or buff)
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'any' },
-      'p1',
-      (pending) => (pending as AdjustablePendingEffect).adjust({ delta: 2 }),
-    );
+    bus.onBefore('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'player.property.roundsWon' && e.targetId === 'p1',
+      act: (pending) => (pending as AdjustablePendingEffect).adjust({ delta: 2 }),
+    });
 
     // Try to decrease by 5 → resolved = 10 - 5 = 5
     await executeSetState(session, makeCtx({
@@ -437,11 +436,10 @@ describe('executeSetState', () => {
     session.state.players['p1'].properties['roundsWon'] = 10;
 
     // Register a passive that halves the resolved value
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'any' },
-      'p1',
-      (pending) => (pending as AdjustablePendingEffect).adjust({ mult: 0.5 }),
-    );
+    bus.onBefore('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'player.property.roundsWon' && e.targetId === 'p1',
+      act: (pending) => (pending as AdjustablePendingEffect).adjust({ mult: 0.5 }),
+    });
 
     // Try to decrease by 4 → resolved = 10 - 4 = 6
     await executeSetState(session, makeCtx({
@@ -459,18 +457,16 @@ describe('executeSetState', () => {
     session.state.players['p1'].properties['roundsWon'] = 20;
 
     // First passive: add 2 to the resolved value
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'any' },
-      'p1',
-      (pending) => (pending as AdjustablePendingEffect).adjust({ delta: 2 }),
-    );
+    bus.onBefore('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'player.property.roundsWon' && e.targetId === 'p1',
+      act: (pending) => (pending as AdjustablePendingEffect).adjust({ delta: 2 }),
+    });
 
     // Second passive: halve the result
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'any' },
-      'p1',
-      (pending) => (pending as AdjustablePendingEffect).adjust({ mult: 0.5 }),
-    );
+    bus.onBefore('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'player.property.roundsWon' && e.targetId === 'p1',
+      act: (pending) => (pending as AdjustablePendingEffect).adjust({ mult: 0.5 }),
+    });
 
     // Try to decrease by 10 → resolved = 20 - 10 = 10
     await executeSetState(session, makeCtx({
@@ -493,16 +489,15 @@ describe('executeSetState', () => {
     const afterCalls: Array<{ finalValue: number; direction: string }> = [];
 
     // Register a reactive that tracks state-writes
-    bus.onAfter(
-      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'any' },
-      'p1',
-      (event) => {
+    bus.onAfter('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'player.property.roundsWon' && e.targetId === 'p1',
+      act: (event) => {
         afterCalls.push({
           finalValue: (event as any).resolvedValue,
           direction: (event as any).direction,
         });
       },
-    );
+    });
 
     // Write to p1's roundsWon
     await executeSetState(session, makeCtx({
@@ -524,23 +519,21 @@ describe('executeSetState', () => {
     const afterCalls: any[] = [];
 
     // Register a passive that adjusts
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'any' },
-      'p1',
-      (pending) => {
+    bus.onBefore('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'player.property.roundsWon' && e.targetId === 'p1',
+      act: (pending) => {
         beforeCalls.push((pending as AdjustablePendingEffect).resolvedValue);
         (pending as AdjustablePendingEffect).adjust({ delta: 2 });
       },
-    );
+    });
 
     // Register a reactive that sees the adjusted value
-    bus.onAfter(
-      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'any' },
-      'p1',
-      (event) => {
+    bus.onAfter('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'player.property.roundsWon' && e.targetId === 'p1',
+      act: (event) => {
         afterCalls.push((event as any).resolvedValue);
       },
-    );
+    });
 
     // Try to decrease by 5 → resolved = 10 - 5 = 5 → adjusted to 7
     await executeSetState(session, makeCtx({
@@ -561,20 +554,20 @@ describe('executeSetState', () => {
     const afterCalls: any[] = [];
 
     // Register a passive that cancels
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'decrease' },
-      'p1',
-      (pending) => pending.cancel(),
-    );
+    bus.onBefore('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'player.property.roundsWon'
+        && e.direction === 'decrease' && e.targetId === 'p1',
+      act: (pending) => pending.cancel(),
+    });
 
     // Register a reactive that should NOT be called
-    bus.onAfter(
-      { kind: 'state-write', scope: 'target', path: 'player.property.roundsWon', direction: 'decrease' },
-      'p1',
-      () => {
+    bus.onAfter('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'player.property.roundsWon'
+        && e.direction === 'decrease' && e.targetId === 'p1',
+      act: () => {
         afterCalls.push('triggered');
       },
-    );
+    });
 
     // Try to decrease (should be cancelled)
     await executeSetState(session, makeCtx({
@@ -632,13 +625,12 @@ describe('executeUpdate', () => {
     const beforeCalls: any[] = [];
 
     // Register a reactive that listens to updates
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'gamepiece.property.power', direction: 'any' },
-      'weapon-1',
-      (pending) => {
+    bus.onBefore('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'gamepiece.property.power' && e.targetId === 'weapon-1',
+      act: (pending) => {
         beforeCalls.push((pending as AdjustablePendingEffect).resolvedValue);
       },
-    );
+    });
 
     await executeUpdate(session, makeCtx({
       actorId: 'p1',
@@ -660,11 +652,11 @@ describe('executeUpdate', () => {
     session.config.gamepieceTypes['weapon'].properties['power'] = { mutable: true };
 
     // Register a passive that blocks decreases
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'gamepiece.property.power', direction: 'decrease' },
-      'weapon-1',
-      (pending) => pending.cancel(),
-    );
+    bus.onBefore('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'gamepiece.property.power'
+        && e.direction === 'decrease' && e.targetId === 'weapon-1',
+      act: (pending) => pending.cancel(),
+    });
 
     await executeUpdate(session, makeCtx({
       actorId: 'p1',
@@ -686,11 +678,11 @@ describe('executeUpdate', () => {
     session.config.gamepieceTypes['weapon'].properties['power'] = { mutable: true };
 
     // Register a passive that boosts all damage
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'gamepiece.property.power', direction: 'increase' },
-      'weapon-1',
-      (pending) => (pending as AdjustablePendingEffect).adjust({ delta: 2 }),
-    );
+    bus.onBefore('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'gamepiece.property.power'
+        && e.direction === 'increase' && e.targetId === 'weapon-1',
+      act: (pending) => (pending as AdjustablePendingEffect).adjust({ delta: 2 }),
+    });
 
     await executeUpdate(session, makeCtx({
       actorId: 'p1',
@@ -715,13 +707,12 @@ describe('executeUpdate', () => {
     const afterCalls: any[] = [];
 
     // Register a reactive that triggers after updates
-    bus.onAfter(
-      { kind: 'state-write', scope: 'target', path: 'gamepiece.property.power', direction: 'any' },
-      'weapon-1',
-      (event) => {
+    bus.onAfter('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'gamepiece.property.power' && e.targetId === 'weapon-1',
+      act: (event) => {
         afterCalls.push((event as any).resolvedValue);
       },
-    );
+    });
 
     await executeUpdate(session, makeCtx({
       actorId: 'p1',
@@ -746,23 +737,21 @@ describe('executeUpdate', () => {
     const afterCalls: any[] = [];
 
     // Register a passive that halves
-    bus.onBefore(
-      { kind: 'state-write', scope: 'target', path: 'gamepiece.property.power', direction: 'any' },
-      'weapon-1',
-      (pending) => {
+    bus.onBefore('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'gamepiece.property.power' && e.targetId === 'weapon-1',
+      act: (pending) => {
         beforeCalls.push((pending as AdjustablePendingEffect).resolvedValue);
         (pending as AdjustablePendingEffect).adjust({ mult: 0.5 });
       },
-    );
+    });
 
     // Register a reactive that sees the adjusted value
-    bus.onAfter(
-      { kind: 'state-write', scope: 'target', path: 'gamepiece.property.power', direction: 'any' },
-      'weapon-1',
-      (event) => {
+    bus.onAfter('state-write', {
+      match: (e) => e.kind === 'state-write' && e.path === 'gamepiece.property.power' && e.targetId === 'weapon-1',
+      act: (event) => {
         afterCalls.push((event as any).resolvedValue);
       },
-    );
+    });
 
     await executeUpdate(session, makeCtx({
       actorId: 'p1',
