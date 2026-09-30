@@ -86,8 +86,10 @@ export async function executeUpdate(
         direction: finalValue >= current ? "increase" : "decrease",
         path,
         resolvedValue: finalValue,
+        previousValue: current,
         targetId: pieceId,
         actorId: ctx.actorId,
+        sourcePieceId,
       } satisfies StateWriteEvent;
       const pending = session.bus?.emitBeforeStateWrite(stateWriteEvent, session);
       if (pending?.cancelled) {

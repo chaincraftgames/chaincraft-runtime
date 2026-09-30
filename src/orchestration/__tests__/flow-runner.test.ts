@@ -180,25 +180,6 @@ describe('loop node', () => {
     expect(calls).toBe(2);
   });
 
-  it('finalRound allows one extra full iteration after endCondition first fires', () => {
-    const flow: FlowNode = {
-      kind: 'loop',
-      id: 'root',
-      label: 'root loop',
-      endCondition: () => true,
-      finalRound: true,
-      hooks: { onEnter: [logHook('enter')] },
-      children: [],
-    };
-    const module = makeModule(flow, []);
-    const advanceFlow = createFlowRunner(module);
-    const state = createGameExecutionState();
-
-    expect(itemTags(advanceFlow(state))).toEqual(['enter']); // iteration 1
-    expect(itemTags(advanceFlow(state))).toEqual(['enter']); // condition fired → final round
-    expectComplete(advanceFlow(state)); // exit after final round
-  });
-
   it('writeIterationTo writes the current iteration index before each onEnter', () => {
     const flow: FlowNode = {
       kind: 'loop',
@@ -385,6 +366,160 @@ describe('turn node', () => {
     const runners = expectFork(advanceFlow(state));
     runners['p1'].cursor.done = true;
     expect(itemTags(advanceFlow(state))).toEqual(['turn-complete']);
+    expectComplete(advanceFlow(state));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Loop endCondition with checkAfter: 'turn'
+// ---------------------------------------------------------------------------
+
+describe('loop checkAfter: turn', () => {
+  function roundRobinTurn(hooks?: { onComplete: Record<string, unknown>[] }): FlowNode {
+    return {
+      kind: 'turn',
+      id: 'play',
+      label: 'play',
+      ordering: { kind: 'round-robin' },
+      grammar: { kind: 'action', ref: 'act-a' },
+      ...(hooks && { hooks }),
+    };
+  }
+
+  it('exits after the triggering turn; later seats do not act; onComplete hooks fire inner to outer', () => {
+    const calls: (string | undefined)[] = [];
+    const flow: FlowNode = {
+      kind: 'loop',
+      id: 'rounds',
+      label: 'rounds',
+      checkAfter: 'turn',
+      endCondition: (_s, actorId) => {
+        calls.push(actorId);
+        return actorId === 'p1';
+      },
+      hooks: { onComplete: [logHook('loop-complete')] },
+      children: [roundRobinTurn({ onComplete: [logHook('turn-complete')] })],
+    };
+    const advanceFlow = createFlowRunner(makeModule(flow, ['act-a']));
+    const state = createGameExecutionState();
+
+    const runners = expectFork(advanceFlow(state));
+    expect(Object.keys(runners)).toEqual(['p1']);
+    runners['p1'].cursor.done = true;
+
+    expect(itemTags(advanceFlow(state))).toEqual(['turn-complete']);
+    expect(itemTags(advanceFlow(state))).toEqual(['loop-complete']);
+    expectComplete(advanceFlow(state));
+    expect(calls).toEqual(['p1']);
+  });
+
+  it('binds each finishing player as actor and never evaluates at the iteration boundary', () => {
+    const calls: (string | undefined)[] = [];
+    const flow: FlowNode = {
+      kind: 'loop',
+      id: 'rounds',
+      label: 'rounds',
+      checkAfter: 'turn',
+      endCondition: (_s, actorId) => {
+        calls.push(actorId);
+        return calls.length >= 3;
+      },
+      children: [roundRobinTurn()],
+    };
+    const advanceFlow = createFlowRunner(makeModule(flow, ['act-a']));
+    const state = createGameExecutionState();
+
+    for (const expected of ['p1', 'p2', 'p1']) {
+      const runners = expectFork(advanceFlow(state));
+      expect(Object.keys(runners)).toEqual([expected]);
+      runners[expected].cursor.done = true;
+    }
+    expectComplete(advanceFlow(state));
+    expect(calls).toEqual(['p1', 'p2', 'p1']);
+  });
+
+  it('unwinds nested loops when an outer per-turn condition fires', () => {
+    const flow: FlowNode = {
+      kind: 'loop',
+      id: 'outer',
+      label: 'outer',
+      checkAfter: 'turn',
+      endCondition: (_s, actorId) => actorId === 'p2',
+      hooks: { onComplete: [logHook('outer-complete')] },
+      children: [
+        {
+          kind: 'loop',
+          id: 'inner',
+          label: 'inner',
+          count: 5,
+          hooks: { onComplete: [logHook('inner-complete')] },
+          children: [roundRobinTurn()],
+        },
+      ],
+    };
+    const advanceFlow = createFlowRunner(makeModule(flow, ['act-a']));
+    const state = createGameExecutionState();
+
+    expectFork(advanceFlow(state))['p1'].cursor.done = true;
+    expectFork(advanceFlow(state))['p2'].cursor.done = true;
+
+    expect(itemTags(advanceFlow(state))).toEqual(['inner-complete']);
+    expect(itemTags(advanceFlow(state))).toEqual(['outer-complete']);
+    expectComplete(advanceFlow(state));
+  });
+
+  it('finalRound: every other player gets one more turn, wrapping into the next iteration', () => {
+    const calls: (string | undefined)[] = [];
+    const flow: FlowNode = {
+      kind: 'loop',
+      id: 'rounds',
+      label: 'rounds',
+      checkAfter: 'turn',
+      finalRound: true,
+      endCondition: (_s, actorId) => {
+        calls.push(actorId);
+        return actorId === 'p2';
+      },
+      hooks: { onComplete: [logHook('loop-complete')] },
+      children: [roundRobinTurn()],
+    };
+    const advanceFlow = createFlowRunner(makeModule(flow, ['act-a']));
+    const state = createGameExecutionState(makeSession(['p1', 'p2', 'p3']));
+
+    // p2 triggers; p3 finishes this round, p1 plays in the next; exit before p2 acts again.
+    for (const expected of ['p1', 'p2', 'p3', 'p1']) {
+      const runners = expectFork(advanceFlow(state));
+      expect(Object.keys(runners)).toEqual([expected]);
+      runners[expected].cursor.done = true;
+    }
+    expect(itemTags(advanceFlow(state))).toEqual(['loop-complete']);
+    expectComplete(advanceFlow(state));
+    expect(calls).toEqual(['p1', 'p2']);
+  });
+
+  it('simultaneous ordering: checks each player at the join', () => {
+    const flow: FlowNode = {
+      kind: 'loop',
+      id: 'rounds',
+      label: 'rounds',
+      checkAfter: 'turn',
+      endCondition: (_s, actorId) => actorId === 'p2',
+      children: [
+        {
+          kind: 'turn',
+          id: 'play',
+          label: 'play',
+          ordering: { kind: 'simultaneous' },
+          grammar: { kind: 'action', ref: 'act-a' },
+        },
+      ],
+    };
+    const advanceFlow = createFlowRunner(makeModule(flow, ['act-a']));
+    const state = createGameExecutionState();
+
+    const runners = expectFork(advanceFlow(state));
+    runners['p1'].cursor.done = true;
+    runners['p2'].cursor.done = true;
     expectComplete(advanceFlow(state));
   });
 });

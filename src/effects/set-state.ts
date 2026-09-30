@@ -133,8 +133,10 @@ export async function executeSetState(
           direction: resolved >= current ? "increase" : "decrease",
           path,
           resolvedValue: resolved,
+          previousValue: current,
           targetId: playerId,
           actorId: ctx.actorId,
+          sourcePieceId,
         } satisfies StateWriteEvent;
         const pending = session.bus?.emitBeforeStateWrite(stateWriteEvent, session);
         if (pending?.cancelled) {

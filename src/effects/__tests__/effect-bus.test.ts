@@ -25,6 +25,7 @@ function makeStateWrite(overrides: Partial<StateWriteEvent> = {}): StateWriteEve
     targetId: 'player-a',
     actorId: 'player-b',
     resolvedValue: -5,
+    previousValue: 0,
     ...overrides,
   };
 }

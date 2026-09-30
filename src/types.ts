@@ -345,10 +345,27 @@ export type EffectContext<T = any> = {
   sourcePieceId?: string;
   /** The piece currently being targeted in an update/iterate loop; used for target.property.<id> refs. */
   targetPieceId?: string;
+  /** The state-write that fired this passive; used for trigger.<field> refs. Absent outside passives. */
+  trigger?: TriggerContext;
   /** Action inputs from player submission, keyed by input id. */
   actionInputs: Record<string, unknown>;
   /** Resolved effect definition from the spec (the YAML node). */
   effectDef: T;
+};
+
+/** Facts about the triggering state-write, exposed to passive effects as `trigger.*` var paths. */
+export type TriggerContext = {
+  /** State path written, e.g. 'player.property.life'. */
+  path: string;
+  /** Value before the write. */
+  previousValue: number;
+  /** Value after the write (post-adjust/clamp). */
+  newValue: number;
+  /** newValue - previousValue (signed; negative for damage). */
+  delta: number;
+  direction: "increase" | "decrease";
+  /** Player/piece whose property was written. */
+  targetId: string;
 };
 
 /**
@@ -470,18 +487,22 @@ export type LoopFlowNode = {
   id: string;
   label: string;
   /**
-   * Exit when this predicate returns true, checked after each full iteration
-   * (all children processed).
+   * Exit when this predicate returns true. Checked when `checkAfter` says:
+   * after each full iteration (no actor), or after each player's turn in any
+   * descendant turn node (that player bound as actorId).
    */
   endCondition?: Predicate;
+  /** When endCondition is evaluated. Defaults to 'iteration'. */
+  checkAfter?: "iteration" | "turn";
   /**
    * Run exactly this many iterations then exit. Mutually exclusive with
    * endCondition; use count: 1 for a one-shot sequence of phases.
    */
   count?: number;
   /**
-   * When true and endCondition fires mid-iteration, allow the current
-   * iteration to complete before exiting.
+   * With checkAfter: 'turn', when endCondition fires the loop records the
+   * triggering player and exits when that player is about to act again, so
+   * every other player gets one more turn.
    */
   finalRound?: boolean;
   /** Write the current iteration count to this game state path after each onEnter. */

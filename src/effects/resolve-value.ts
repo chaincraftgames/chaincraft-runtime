@@ -166,6 +166,7 @@ export function resolveValue(
  *   player.inventory.<id>.count  — target player's inventory piece count
  *   source.property.<id>         — property on the source piece (from ctx.sourcePieceId)
  *   target.property.<id>         — property on the target piece (from ctx.targetPieceId)
+ *   trigger.<field>              — triggering state-write fact (from ctx.trigger; passives only)
  */
 export function resolveStateVar(
   session: GameSession,
@@ -173,6 +174,12 @@ export function resolveStateVar(
   path: string,
 ): unknown {
   const segments = path.split(".");
+
+  // trigger.<field> — facts about the state-write that fired this passive
+  if (segments[0] === "trigger") {
+    if (!ctx.trigger) return undefined;
+    return (ctx.trigger as unknown as Record<string, unknown>)[segments[1]];
+  }
 
   // source.property.<id> — property on the source/triggering piece
   if (segments[0] === "source" && segments[1] === "property") {

@@ -91,6 +91,10 @@ export interface StateWriteEvent {
   actorId: string;
   /** The numeric value before any passive modifications. */
   resolvedValue: number;
+  /** The numeric value of the property before this write. */
+  previousValue: number;
+  /** Piece that caused the write (the effect's resolved `source`), if any. */
+  sourcePieceId?: string;
 }
 
 export interface MoveEvent {

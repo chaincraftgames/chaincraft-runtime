@@ -15,6 +15,7 @@ import type {
   GameSession,
   PassiveActivation,
   EffectRegistration,
+  TriggerContext,
 } from "#chaincraft/types.js";
 import type {
   EffectBus,
@@ -56,6 +57,19 @@ export function registerPassiveActivations(
         act: async (event: EffectEvent, s: GameSession): Promise<void> => {
           // SkipTurnEvent has no actorId; all others do.
           const actorId = event.kind !== "skip-turn" ? event.actorId : null;
+          const sourcePieceId =
+            event.kind === "state-write" ? event.sourcePieceId : undefined;
+          const trigger: TriggerContext | undefined =
+            event.kind === "state-write"
+              ? {
+                  path: event.path,
+                  previousValue: event.previousValue,
+                  newValue: event.resolvedValue,
+                  delta: event.resolvedValue - event.previousValue,
+                  direction: event.direction,
+                  targetId: event.targetId,
+                }
+              : undefined;
           for (const effectDef of activation.compiledEffects) {
             const def = effectDef as Record<string, unknown>;
             const kind = def.kind as string | undefined;
@@ -66,6 +80,8 @@ export function registerPassiveActivations(
               actorId,
               effectDef: def,
               actionInputs: {},
+              sourcePieceId,
+              trigger,
             });
           }
         },

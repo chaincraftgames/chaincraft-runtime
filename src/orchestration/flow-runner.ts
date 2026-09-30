@@ -68,8 +68,10 @@ interface LoopFrameState {
   childIndex: number;
   /** How many iterations of the loop have completed so far. */
   iterationCount: number;
-  /** True once endCondition has fired but finalRound is completing the iteration. */
-  finalRoundTriggered: boolean;
+  /** Player whose turn triggered finalRound; the loop exits when they are next to act. */
+  finalRoundTrigger?: string;
+  /** Set by a per-turn exit check; skips remaining children and exits. */
+  exitRequested?: boolean;
 }
 
 /**
@@ -82,6 +84,8 @@ interface TurnFrameState {
   phase: "enter-hooks" | "acting" | "complete-hooks";
   /** Per-player grammar cursors. Populated incrementally as actors become eligible. */
   cursors: Record<string, PlayerTurnCursor>;
+  /** Players whose completed turn has already been run through per-turn exit checks. */
+  exitChecked?: string[];
 }
 
 function asTypedFrameState<T>(frame: FlowFrame): T {
@@ -237,7 +241,7 @@ function advanceLoop(
   }
 
   if (ls.phase === "children") {
-    if (ls.childIndex < node.children.length) {
+    if (!ls.exitRequested && ls.childIndex < node.children.length) {
       const child = node.children[ls.childIndex++];
       pushFrame(state, child);
       return resumeTop(state, module, nodeIndex);
@@ -247,7 +251,7 @@ function advanceLoop(
     ls.iterationCount++;
     ls.childIndex = 0;
 
-    const shouldExit = checkLoopExit(node, state, ls);
+    const shouldExit = ls.exitRequested || checkLoopExit(node, state, ls);
 
     if (shouldExit) {
       ls.phase = "complete-hooks";
@@ -278,7 +282,8 @@ function advanceLoop(
 
 /**
  * Returns true if the loop should exit after the current iteration completes.
- * count takes precedence over endCondition.
+ * count takes precedence over endCondition. Per-turn endConditions are
+ * evaluated by checkPerTurnExits instead.
  */
 function checkLoopExit(
   node: LoopFlowNode,
@@ -288,15 +293,8 @@ function checkLoopExit(
   if (node.count !== undefined) {
     return ls.iterationCount >= node.count;
   }
-  if (node.endCondition) {
-    const met = node.endCondition(state.session);
-    if (met && node.finalRound && !ls.finalRoundTriggered) {
-      // Allow this iteration to complete before exiting (finalRound semantics).
-      // We've already incremented iterationCount; next check will fire the exit.
-      ls.finalRoundTriggered = true;
-      return false;
-    }
-    return met;
+  if (node.endCondition && node.checkAfter !== "turn") {
+    return node.endCondition(state.session);
   }
   // Neither count nor endCondition — loop forever. Caller must have an
   // effect that ends the game via GameOutcome; this is a spec-level concern.
@@ -332,11 +330,12 @@ function advanceTurn(
   }
 
   if (ls.phase === "acting") {
-    const eligible = resolveNextEligibleActors(
-      node.ordering,
-      state,
-      ls.cursors,
-    );
+    let eligible = checkPerTurnExits(state, nodeIndex, ls)
+      ? []
+      : resolveNextEligibleActors(node.ordering, state, ls.cursors);
+    if (eligible.length && checkFinalRoundEnd(state, nodeIndex, eligible)) {
+      eligible = [];
+    }
 
     if (eligible.length === 0) {
       // All actors have completed their grammar — move to complete-hooks.
@@ -383,6 +382,66 @@ function advanceTurn(
   throw new Error(`Turn node "${node.id}": unexpected phase "${ls.phase}"`);
 }
 
+/**
+ * Evaluates checkAfter: 'turn' endConditions on enclosing loops for each player
+ * whose turn completed since the last call, binding that player as actorId.
+ * A finalRound loop records the player as its trigger instead of exiting.
+ * Otherwise the firing loop and every loop inside it are flagged exitRequested
+ * so they unwind through their onComplete hooks. Returns true if an exit fired.
+ */
+function checkPerTurnExits(
+  state: GameExecutionState,
+  nodeIndex: Map<string, FlowNode>,
+  ls: TurnFrameState,
+): boolean {
+  const checked = (ls.exitChecked ??= []);
+  const ancestors = state.flowStack.slice(0, -1);
+  for (const [playerId, cursor] of Object.entries(ls.cursors)) {
+    if (!cursor.done || checked.includes(playerId)) continue;
+    checked.push(playerId);
+    // Outermost first: the widest firing exit unwinds everything inside it.
+    for (let i = 0; i < ancestors.length; i++) {
+      const node = nodeIndex.get(ancestors[i].nodeId);
+      if (node?.kind !== "loop" || node.checkAfter !== "turn") continue;
+      const loopState = asTypedFrameState<LoopFrameState>(ancestors[i]);
+      if (loopState.finalRoundTrigger !== undefined) continue;
+      if (!node.endCondition?.(state.session, playerId)) continue;
+      if (node.finalRound) {
+        loopState.finalRoundTrigger = playerId;
+        continue;
+      }
+      requestLoopExits(ancestors.slice(i), nodeIndex);
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Exits a finalRound loop when its triggering player is about to act again. */
+function checkFinalRoundEnd(
+  state: GameExecutionState,
+  nodeIndex: Map<string, FlowNode>,
+  eligible: string[],
+): boolean {
+  const ancestors = state.flowStack.slice(0, -1);
+  const firing = ancestors.findIndex((frame) => {
+    if (nodeIndex.get(frame.nodeId)?.kind !== "loop") return false;
+    const trigger = asTypedFrameState<LoopFrameState>(frame).finalRoundTrigger;
+    return trigger !== undefined && eligible.includes(trigger);
+  });
+  if (firing === -1) return false;
+  requestLoopExits(ancestors.slice(firing), nodeIndex);
+  return true;
+}
+
+function requestLoopExits(frames: FlowFrame[], nodeIndex: Map<string, FlowNode>): void {
+  for (const frame of frames) {
+    if (nodeIndex.get(frame.nodeId)?.kind === "loop") {
+      asTypedFrameState<LoopFrameState>(frame).exitRequested = true;
+    }
+  }
+}
+
 /** Pushes a new frame onto the flow stack for the given node. */
 function pushFrame(state: GameExecutionState, node: FlowNode): FlowFrame {
   const frame: FlowFrame = {
@@ -416,13 +475,14 @@ function initFrameState(node: FlowNode): Record<string, unknown> {
         phase: "enter-hooks",
         childIndex: 0,
         iterationCount: 0,
-        finalRoundTriggered: false,
+        exitRequested: false,
       } as unknown as Record<string, unknown>;
     case "turn":
-      return { phase: "enter-hooks", cursors: {} } as unknown as Record<
-        string,
-        unknown
-      >;
+      return {
+        phase: "enter-hooks",
+        cursors: {},
+        exitChecked: [],
+      } as unknown as Record<string, unknown>;
   }
 }
 
