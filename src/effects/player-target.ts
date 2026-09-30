@@ -19,7 +19,7 @@ export type PlayerTarget =
   | { kind: 'all-other' }
   | { kind: 'param'; inputId: string }
   | { kind: 'stateRef'; path: string }
-  | { kind: 'matching'; condition: (session: GameSession, playerId: string) => boolean };
+  | { kind: 'matching'; condition: (session: GameSession, playerId: string, actorId?: string) => boolean };
 
 /**
  * Resolve a dynamic player reference ({ stateRef } or { param }) to a single
@@ -110,7 +110,9 @@ export function resolvePlayerTarget(
   }
 
   if (target.kind === 'matching') {
-    return session.players.filter((playerId) => target.condition(session, playerId));
+    return session.players.filter((playerId) =>
+      target.condition(session, playerId, ctx.actorId ?? undefined),
+    );
   }
 
   throw new Error(`Unknown player target kind: ${(target as PlayerTarget).kind}`);

@@ -5,6 +5,8 @@
 // state-driven changes (reversals, dynamic starting player) take effect
 // immediately without cache invalidation.
 //
+// Eliminated players (player.property.eliminated === true) are never eligible.
+//
 // STATUS: Stubbed. The core dispatch table is in place but most ordering
 // variants are only partially implemented. See TODOs per case.
 //
@@ -21,6 +23,7 @@
 // ---------------------------------------------------------------------------
 
 import type { TurnOrdering, GameSession } from "#chaincraft/types.js";
+import { isEliminated } from "#chaincraft/state/elimination.js";
 import type { GameExecutionState, PlayerTurnCursor } from "./types.js";
 
 /**
@@ -32,9 +35,9 @@ export function resolveNextEligibleActors(
   state: GameExecutionState,
   cursors: Record<string, PlayerTurnCursor>,
 ): string[] {
-  const notDone = (id: string) => {
+  const eligible = (id: string) => {
     const c = cursors[id];
-    return !c || !c.done;
+    return (!c || !c.done) && !isEliminated(state.session, id);
   };
 
   switch (ordering.kind) {
@@ -43,14 +46,14 @@ export function resolveNextEligibleActors(
       // (snake-draft reversal flag), roleIds (restrict to role subset), sort
       // (dynamic ordering key). For now: first not-done player in session
       // index order.
-      const next = state.session.players.find(notDone);
+      const next = state.session.players.find(eligible);
       return next ? [next] : [];
     }
 
     case "simultaneous": {
       // TODO: apply roleIds filter (restrict simultaneous fork to a role
       // subset rather than all players).
-      return state.session.players.filter(notDone);
+      return state.session.players.filter(eligible);
     }
 
     case "single": {
@@ -61,7 +64,7 @@ export function resolveNextEligibleActors(
             `Turn ordering state-ref "${ordering.actor.path}" did not resolve to a player ID`,
           );
         }
-        return notDone(playerId) ? [playerId] : [];
+        return eligible(playerId) ? [playerId] : [];
       }
       // TODO: resolve role → player ID via module role registry.
       throw new Error("Role-based actor resolution not yet implemented");

@@ -9,6 +9,8 @@ export {
 
 export { StateAccessError } from '#chaincraft/state/errors.js';
 
+export { ELIMINATED_PROPERTY, isEliminated } from '#chaincraft/state/elimination.js';
+
 export { projectStateForPlayer } from '#chaincraft/state/projection.js';
 export type {
   ProjectedState,
