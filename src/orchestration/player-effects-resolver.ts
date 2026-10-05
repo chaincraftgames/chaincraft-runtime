@@ -11,15 +11,18 @@
 import type { CompiledGameModule, Grammar } from "#chaincraft/types.js";
 import type {
   GameExecutionState,
+  OptionsResolver,
   PlayerTurnCursor,
   PlayerInputSuspension,
   QueueGroup,
   QueueItem,
-} from "./types.js";
+} from "#chaincraft/orchestration/types.js";
 import {
   advanceGrammarCursor,
   resolveLegalActions,
-} from "./grammar.js";
+} from "#chaincraft/orchestration/grammar.js";
+import { hasCompletion } from "#chaincraft/orchestration/input-completion.js";
+import { resolveOptions as defaultResolveOptions } from "#chaincraft/orchestration/options.js";
 
 /** What a player runner should do next at its current cursor position. */
 export type PlayerTurnSignal =
@@ -44,15 +47,17 @@ export function nextPlayerTurnWork(
   _state: GameExecutionState,
   module: CompiledGameModule,
   nodeLabel?: string,
+  resolveOptions: OptionsResolver = defaultResolveOptions,
 ): PlayerTurnSignal {
   if (cursor.done) return { kind: "done" };
 
   const { actions: structuralActions, canPass } = resolveLegalActions(grammar, cursor);
 
-  // Filter actions whose precondition is not satisfied at the current state.
+  // Offer only actions whose precondition holds and whose inputs can all be answered.
   const actions = structuralActions.filter((id) => {
     const def = module.actions[id];
-    return !def?.precondition || def.precondition(_state.session, playerId);
+    if (def?.precondition && !def.precondition(_state.session, playerId)) return false;
+    return !def || hasCompletion(_state, def.inputs, playerId, {}, resolveOptions);
   });
 
   if (actions.length === 0 && !canPass) {

@@ -60,14 +60,15 @@ import type {
   QueueGroup,
   GameExecutionDeps,
   OptionsResolver,
-} from './types.js';
+} from '#chaincraft/orchestration/types.js';
 import {
   nextPlayerTurnWork as nextPlayerTurnSignal,
   explodeAction,
-} from './player-effects-resolver.js';
+} from '#chaincraft/orchestration/player-effects-resolver.js';
 import {
   advanceGrammarCursor,
-} from './grammar.js';
+} from '#chaincraft/orchestration/grammar.js';
+import { pruneDeadEnds } from '#chaincraft/orchestration/input-completion.js';
 
 /** Sentinel value indicating no automatic input is available. */
 const NO_AUTO_VALUE = Symbol('no-auto-value');
@@ -293,6 +294,7 @@ async function drainPlayerTurn(
         state,
         deps.module,
         playerTurn.nodeLabel,
+        deps.resolveOptions,
       );
       if (signal.kind === 'done') {
         playerTurn.done = true;
@@ -422,7 +424,21 @@ async function drainQueue(
         throw new Error(`Queue input "${item.input.id}" has no actor`);
       }
 
-      const options = resolveOptions(state, item.input, item.group.actorId);
+      const { actorId, collected } = item.group;
+      let options = resolveOptions(state, item.input, actorId, collected);
+      if (options !== undefined) {
+        const later = queue
+          .slice(1)
+          .filter((q): q is InputQueueItem => q.kind === 'input' && q.group === item.group)
+          .map((q) => q.input);
+        options = pruneDeadEnds(state, item.input, options, later, actorId, collected, resolveOptions);
+        if (options.length === 0) {
+          throw new Error(
+            `Input "${item.input.id}" has no valid options for player "${actorId}"; ` +
+              'the action should not have been offered',
+          );
+        }
+      }
       const suspension: PlayerInputSuspension = {
         kind: 'player-input',
         awaiting: item.group.actorId,

@@ -14,6 +14,7 @@ import type { GamepieceSelectInputType } from "#chaincraft/types.js";
 import type {
   GameExecutionState,
   EngineInput,
+  CollectedInputs,
 } from "#chaincraft/orchestration/types.js";
 import { getInventory } from "#chaincraft/inventory/index.js";
 
@@ -22,6 +23,7 @@ export function resolveOptions(
   state: GameExecutionState,
   input: EngineInput,
   actorId?: string,
+  collected?: CollectedInputs,
 ): unknown[] | undefined {
   const type = input.type;
 
@@ -41,7 +43,7 @@ export function resolveOptions(
     }
 
     case "gamepiece-select":
-      return resolveGamepieceOptions(state, type, actorId);
+      return resolveGamepieceOptions(state, type, actorId, collected);
 
     // Free-form or engine-resolved elsewhere: no finite options.
     // ('action-select' options are supplied by the player runner, which owns
@@ -56,20 +58,28 @@ function resolveGamepieceOptions(
   state: GameExecutionState,
   type: GamepieceSelectInputType,
   actorId?: string,
+  collected?: CollectedInputs,
 ): unknown[] | undefined {
   const { session } = state;
   const invConfig = session.config.inventories[type.inventory];
   const scope = invConfig?.scope ?? "game";
 
-  // Player-scoped inventory: resolve against the actor (fromPlayer: 'self' or
-  // unset). fromPlayer: { param } would need the group's collected inputs,
-  // which this signature doesn't carry — return undefined (free-form) rather
-  // than a wrong finite list that resume validation would enforce.
   let playerId: string | undefined;
   if (scope === "player") {
-    if (type.fromPlayer && type.fromPlayer !== "self") return undefined;
-    if (!actorId) return undefined;
-    playerId = actorId;
+    if (type.fromPlayer && type.fromPlayer !== "self") {
+      const paramId = type.fromPlayer.param;
+      const owner = collected?.[paramId];
+      if (typeof owner !== "string" || !session.players.includes(owner)) {
+        throw new Error(
+          `gamepiece-select fromPlayer param "${paramId}" does not resolve to a player ` +
+            `(got ${JSON.stringify(owner)}); it must reference an earlier player-select input`,
+        );
+      }
+      playerId = owner;
+    } else {
+      if (!actorId) return undefined;
+      playerId = actorId;
+    }
   }
 
   const inv = getInventory(session, type.inventory, playerId);

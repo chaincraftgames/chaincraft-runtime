@@ -1409,7 +1409,7 @@ describe('executeReveal', () => {
 
   it('sets visibleTo to players matching a role when to is "role:<id>"', async () => {
     const session = makeSession();
-    session.state.players['p2'].properties['role'] = 'dealer';
+    session.state.players['p2'].roles = ['dealer'];
     session.state.gamepieces['weapon-1'].visibleTo = null;
     await executeReveal(session, makeCtx({
       effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'role:dealer' },

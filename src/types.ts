@@ -428,6 +428,9 @@ export type GameFlowNode = {
   children: FlowNode[];
 };
 
+/** Selects one player. Remaining kinds are on the turn-order roadmap. */
+export type PlayerSelector = { kind: "state-ref"; path: string };
+
 /**
  * How players are ordered and scheduled within a turn node.
  *
@@ -436,21 +439,15 @@ export type GameFlowNode = {
  *   that flips direction when true — update it with the built-in `reverseTurnOrder` effect.
  * - simultaneous: all eligible players act at once (fork-join); outcomes hidden until join
  *   when `revealAtJoin` is true on the parent TurnFlowNode.
- * - single: one specific player acts, resolved from a state path or role.
+ * - single: exactly one player acts, chosen by a player selector.
  * - custom: escape hatch for game-specific resolver logic registered at startup.
  */
 export type TurnOrdering =
   | {
       kind: "round-robin";
-      /** State path to the player ID who acts first. Defaults to session.players[0]. */
-      startPath?: string;
-      /**
-       * State path to a boolean that reverses iteration direction when true.
-       * Defaults to 'game.property.turnOrderReversed'.
-       * Toggle with the built-in `reverseTurnOrder` effect.
-       */
+      /** First actor; defaults to seat 1. */
+      start?: PlayerSelector;
       reversedPath?: string;
-      /** Restrict to players holding one of these role IDs. */
       roleIds?: string[];
       /** Sort eligible players by a property or inventory value before applying direction. */
       sort?: {
@@ -461,9 +458,7 @@ export type TurnOrdering =
   | { kind: "simultaneous"; roleIds?: string[] }
   | {
       kind: "single";
-      actor:
-        | { kind: "state-ref"; path: string }
-        | { kind: "roles"; roleIds: string[] };
+      actor: PlayerSelector;
     }
   | { kind: "custom"; resolverId: string };
 

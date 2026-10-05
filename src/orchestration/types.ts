@@ -344,6 +344,7 @@ export type OptionsResolver = (
     state: GameExecutionState, 
     input: EngineInput,
     actorId?: string,
+    collected?: CollectedInputs,
 ) => unknown[] | undefined;
 
 /** Everything step() needs beyond EngineState itself — the compiled game and the two pluggable resolvers it can't own. */

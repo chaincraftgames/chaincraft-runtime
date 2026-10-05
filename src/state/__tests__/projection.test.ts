@@ -455,6 +455,7 @@ describe('projectStateForPlayer', () => {
       const bobView = projectStateForPlayer(session, 'bob');
       expect(aliceView.players['alice'].inventories['privateboard']).toEqual({
         structure: 'grid',
+        order: 'row-major',
         cells: { '0:0': 't1', '0:1': null, '1:0': null },
       });
       expect(bobView.players['alice'].inventories['privateboard']).toEqual({

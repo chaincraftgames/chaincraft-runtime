@@ -32,12 +32,12 @@ import type {
   AdvanceFlow,
   PlayerTurnCursor,
   PlayerTurnInit,
-} from "./types.js";
+} from "#chaincraft/orchestration/types.js";
 import {
   resolveNextEligibleActors,
-  readStatePath,
+  resolveStartPlayer,
   writeStatePath,
-} from "./turn-order.js";
+} from "#chaincraft/orchestration/turn-order.js";
 import { evaluateWinConditions } from "#chaincraft/orchestration/win-conditions.js";
 
 // ---------------------------------------------------------------------------
@@ -86,6 +86,8 @@ interface TurnFrameState {
   cursors: Record<string, PlayerTurnCursor>;
   /** Players whose completed turn has already been run through per-turn exit checks. */
   exitChecked?: string[];
+  /** Resolved once on entry to "acting". undefined = not yet resolved; null = no eligible player. */
+  startPlayer?: string | null;
 }
 
 function asTypedFrameState<T>(frame: FlowFrame): T {
@@ -330,9 +332,12 @@ function advanceTurn(
   }
 
   if (ls.phase === "acting") {
+    if (ls.startPlayer === undefined) {
+      ls.startPlayer = resolveStartPlayer(node.ordering, state.session);
+    }
     let eligible = checkPerTurnExits(state, nodeIndex, ls)
       ? []
-      : resolveNextEligibleActors(node.ordering, state, ls.cursors);
+      : resolveNextEligibleActors(node.ordering, state, ls.cursors, ls.startPlayer);
     if (eligible.length && checkFinalRoundEnd(state, nodeIndex, eligible)) {
       eligible = [];
     }
