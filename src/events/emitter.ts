@@ -9,6 +9,7 @@ import type { EffectContext, Message } from "#chaincraft/types.js";
 import type {
   GameOutcome,
   PlayerInputSuspension,
+  TurnInfo,
 } from "#chaincraft/orchestration/types.js";
 import type { StateChangeEvent } from "#chaincraft/api/state-change-events.js";
 
@@ -22,6 +23,8 @@ export type GameEvent =
   | FlowEnterEvent
   | FlowPhaseEvent
   | FlowExitEvent
+  | TurnStartEvent
+  | TurnEndEvent
   | EffectExecuteEvent
   | InputPromptEvent
   | InputResolveEvent
@@ -59,6 +62,16 @@ export interface FlowPhaseEvent {
 export interface FlowExitEvent {
   kind: "flow:exit";
   nodeId: string;
+}
+
+/** An event emitted when a turn (fork of a turn node) starts. */
+export interface TurnStartEvent extends TurnInfo {
+  kind: "turn:start";
+}
+
+/** An event emitted when a turn ends (all of its actors are done). */
+export interface TurnEndEvent extends TurnInfo {
+  kind: "turn:end";
 }
 
 /** An event emitted when an effect is executed. */

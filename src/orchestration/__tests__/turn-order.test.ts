@@ -32,7 +32,7 @@ function makeState(players: string[], eliminated: string[] = []): GameExecutionS
     events: new GameEventEmitter(),
     _inventoryCache: new Map(),
   };
-  return { session, queue: [], pending: undefined, flowStack: [], playerTurns: undefined };
+  return { session, queue: [], pending: undefined, flowStack: [], playerTurns: undefined, turn: undefined };
 }
 
 const done = (): PlayerTurnCursor => ({ sequenceIndex: 0, repeatCount: 0, done: true });

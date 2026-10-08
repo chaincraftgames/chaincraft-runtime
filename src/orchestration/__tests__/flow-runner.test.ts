@@ -68,7 +68,7 @@ function makeSession(players: string[] = ['p1', 'p2']): GameSession {
 }
 
 function createGameExecutionState(session: GameSession = makeSession()): GameExecutionState {
-  return { session, queue: [], pending: undefined, flowStack: [], playerTurns: undefined };
+  return { session, queue: [], pending: undefined, flowStack: [], playerTurns: undefined, turn: undefined };
 }
 
 /**

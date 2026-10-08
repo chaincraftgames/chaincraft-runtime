@@ -139,3 +139,140 @@ describe('GameController — High Card full game e2e', () => {
     expect(messages).toContain(`The winner is ${expectedWinner}!`);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Event ordering — a prompt must never arrive before the state it refers to.
+// ---------------------------------------------------------------------------
+
+describe('GameController — event ordering', () => {
+  function expectStateChangesBeforePrompt(order: string[]): void {
+    expect(order).toContain('state-change');
+    expect(order).toContain('prompt');
+    expect(order.lastIndexOf('state-change')).toBeLessThan(order.indexOf('prompt'));
+  }
+
+  it('flushes state changes before firing onPrompt', async () => {
+    const order: string[] = [];
+    const controller = new GameController(createHighCardModule(), {
+      events: {
+        onStateChange: () => order.push('state-change'),
+        onPrompt: () => order.push('prompt'),
+      },
+    });
+
+    await controller.init('g3', PLAYERS);
+    expectStateChangesBeforePrompt(order);
+
+    order.length = 0;
+    const prompt = controller.currentPrompt!;
+    await controller.processAction({
+      playerId: prompt.awaiting,
+      value: (prompt.options as string[])[0],
+    });
+    expectStateChangesBeforePrompt(order);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Turn lifecycle — turn-start/turn-end bracket each fork; everything that
+// happened before a boundary is delivered before it.
+// ---------------------------------------------------------------------------
+
+describe('GameController — turn lifecycle', () => {
+  const TURN = { nodeId: 'play-trick', label: 'Play a card' };
+
+  function recordingController(module: CompiledGameModule): {
+    controller: GameController;
+    order: string[];
+  } {
+    const order: string[] = [];
+    const controller = new GameController(module, {
+      events: {
+        onStateChange: () => order.push('state-change'),
+        onMessage: () => order.push('message'),
+        onPrompt: (p) => order.push(`prompt:${p.awaiting}`),
+        onTurnStart: (t) => order.push(`turn-start:${t.actors.join(',')}`),
+        onTurnEnd: (t) => order.push(`turn-end:${t.actors.join(',')}`),
+        onComplete: () => order.push('complete'),
+      },
+    });
+    return { controller, order };
+  }
+
+  async function playFirstOption(controller: GameController, playerId: string): Promise<void> {
+    const prompt = controller.promptFor(playerId)!;
+    await controller.processAction({ playerId, value: (prompt.options as string[])[0] });
+  }
+
+  it('round-robin: one turn per actor, with prior messages and state changes flushed first', async () => {
+    const { controller, order } = recordingController(createHighCardModule());
+
+    await controller.init('t1', PLAYERS);
+    expect(order).toEqual(['message', 'state-change', 'turn-start:alice', 'prompt:alice']);
+    expect(controller.currentTurn).toEqual({ ...TURN, actors: ['alice'] });
+
+    order.length = 0;
+    await playFirstOption(controller, 'alice');
+    expect(order).toEqual(['state-change', 'turn-end:alice', 'turn-start:bob', 'prompt:bob']);
+    expect(controller.currentTurn).toEqual({ ...TURN, actors: ['bob'] });
+
+    // Trick resolution (onComplete hooks) lands between bob's turn-end and alice's turn-start.
+    order.length = 0;
+    await playFirstOption(controller, 'bob');
+    expect(order).toEqual([
+      'state-change',
+      'turn-end:bob',
+      'message',
+      'state-change',
+      'turn-start:alice',
+      'prompt:alice',
+    ]);
+  });
+
+  it('round-robin: turn-end precedes completion and no turn is active afterwards', async () => {
+    const { controller, order } = recordingController(createHighCardModule());
+    await controller.init('t2', PLAYERS);
+    for (let i = 0; i < 3; i++) {
+      for (const pid of PLAYERS) await playFirstOption(controller, pid);
+    }
+
+    expect(controller.isComplete).toBe(true);
+    expect(controller.currentTurn).toBeUndefined();
+    expect(order.filter((e) => e.startsWith('turn-start'))).toHaveLength(6);
+    expect(order.filter((e) => e.startsWith('turn-end'))).toHaveLength(6);
+    expect(order.lastIndexOf('turn-end:bob')).toBeLessThan(order.indexOf('complete'));
+    expect(order.slice(order.lastIndexOf('turn-end:bob'))).not.toContain('turn-start:alice');
+  });
+
+  it('simultaneous: one turn for all actors, ending only at the join', async () => {
+    const base = createHighCardModule();
+    const game = base.flow as Extract<FlowNode, { kind: 'game' }>;
+    const loop = game.children[0] as Extract<FlowNode, { kind: 'loop' }>;
+    const turn = loop.children[0] as Extract<FlowNode, { kind: 'turn' }>;
+    const module: CompiledGameModule = {
+      ...base,
+      flow: {
+        ...game,
+        children: [
+          { ...loop, children: [{ ...turn, ordering: { kind: 'simultaneous' } }] },
+        ],
+      },
+    };
+    const { controller, order } = recordingController(module);
+
+    await controller.init('t3', PLAYERS);
+    expect(order.filter((e) => e.startsWith('turn-'))).toEqual(['turn-start:alice,bob']);
+    expect(controller.currentTurn).toEqual({ ...TURN, actors: ['alice', 'bob'] });
+
+    order.length = 0;
+    await playFirstOption(controller, 'alice');
+    expect(order.filter((e) => e.startsWith('turn-'))).toEqual([]);
+
+    order.length = 0;
+    await playFirstOption(controller, 'bob');
+    expect(order.filter((e) => e.startsWith('turn-'))).toEqual([
+      'turn-end:alice,bob',
+      'turn-start:alice,bob',
+    ]);
+  });
+});

@@ -10,9 +10,11 @@
 // from each step result and fires onPrompt once per newly-appearing suspension.
 // currentPrompt is a convenience for single-prompt (sequential) games.
 //
-// Event-callback re-entrancy: onMessage, onPrompt, onComplete, and onStateChange
-// all fire synchronously during the await of init() / processAction(), before
-// the promise resolves. Callbacks must not call processAction() re-entrantly.
+// Event-callback re-entrancy: onMessage, onPrompt, onComplete, onStateChange,
+// onTurnStart, and onTurnEnd all fire synchronously during the await of
+// init() / processAction(), before the promise resolves. Turn callbacks fire
+// mid-step; messages and state changes preceding a turn boundary are flushed
+// first. Callbacks must not call processAction() re-entrantly.
 //
 // Usage:
 //   const ctrl = new GameController(module, { events: { onPrompt, onMessage, onComplete } });
@@ -35,6 +37,7 @@ import type {
   LlmSuspension,
   ExternalDataSuspension,
   GameOutcome,
+  TurnInfo,
 } from "#chaincraft/orchestration/types.js";
 import { step } from "#chaincraft/orchestration/game-step.js";
 import { createFlowRunner } from "#chaincraft/orchestration/flow-runner.js";
@@ -64,8 +67,12 @@ export interface GameControllerEvents {
   onMessage?(message: Message): void;
   /** Terminal. Fires at most once; no onPrompt fires after it. */
   onComplete?(outcome: GameOutcome): void;
+  /** A turn started. Fires before any prompt of that turn. */
+  onTurnStart?(turn: TurnInfo): void;
+  /** A turn ended (all its actors done). Always precedes onComplete. */
+  onTurnEnd?(turn: TurnInfo): void;
   // -- State observation -----------------------------------------------------
-  /** Batch of resolved state mutations from one action, in occurrence order. */
+  /** Batch of resolved state mutations in occurrence order, split at turn boundaries. */
   onStateChange?(changes: StateChangeEvent[]): void;
 }
 
@@ -116,6 +123,11 @@ export class GameController {
     return this.#outcome !== undefined;
   }
 
+  /** The active turn, or undefined between turns / before init / after completion. */
+  get currentTurn(): TurnInfo | undefined {
+    return this.execState?.turn;
+  }
+
   /** Accumulates StateChangeEvents from the internal bus during one action. */
   #pendingStateChanges: StateChangeEvent[] = [];
 
@@ -140,6 +152,7 @@ export class GameController {
       pending: undefined,
       flowStack: [],
       playerTurns: undefined,
+      turn: undefined,
     };
     this.deps = {
       module: this.module,
@@ -151,6 +164,16 @@ export class GameController {
       this.#pendingStateChanges.push(
         (event as { kind: string; change: StateChangeEvent }).change,
       );
+    });
+    session.events.on("turn:start", (event) => {
+      const { kind: _kind, ...turn } = event as { kind: string } & TurnInfo;
+      this.#flushBeforeTurnBoundary();
+      this.options.events?.onTurnStart?.(turn);
+    });
+    session.events.on("turn:end", (event) => {
+      const { kind: _kind, ...turn } = event as { kind: string } & TurnInfo;
+      this.#flushBeforeTurnBoundary();
+      this.options.events?.onTurnEnd?.(turn);
     });
     session.events.emit({ kind: "game:init", gameId, players });
     const result = await step(this.execState, undefined, this.deps);
@@ -241,6 +264,9 @@ export class GameController {
         continue;
       }
 
+      // Prompts may reference pieces moved this step, so state changes go first.
+      this.#flushStateChanges();
+
       // Diff player suspensions and fire onPrompt for newly-appearing ones.
       for (const suspension of playerSuspensions) {
         const playerId = suspension.awaiting;
@@ -252,7 +278,6 @@ export class GameController {
       for (const suspension of playerSuspensions) {
         this.#pendingPrompts.set(suspension.awaiting, suspension);
       }
-      this.#flushStateChanges();
       return;
     }
 
@@ -285,5 +310,11 @@ export class GameController {
     if (this.#pendingStateChanges.length === 0) return;
     const changes = this.#pendingStateChanges.splice(0);
     this.options.events?.onStateChange?.(changes);
+  }
+
+  /** Same order as settle(): messages, then state changes. */
+  #flushBeforeTurnBoundary(): void {
+    this.drainOutbox();
+    this.#flushStateChanges();
   }
 }

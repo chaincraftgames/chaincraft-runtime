@@ -247,6 +247,13 @@ export interface PlayerTurnState {
   nodeLabel?: string;
 }
 
+/** The active turn: one fork of a turn node (one actor for round-robin/single, all actors for simultaneous). */
+export interface TurnInfo {
+  nodeId: string;
+  label: string;
+  actors: string[];
+}
+
 /**
  * Everything step() needs, fully serializable. Wraps
  * GameSession (domain state: pieces, inventories, properties, rng) with
@@ -268,6 +275,8 @@ export interface GameExecutionState {
    * runners have done:true.
    */
   playerTurns: Record<string, PlayerTurnState> | undefined;
+  /** The active turn; set when a fork starts, cleared at join. */
+  turn: TurnInfo | undefined;
 };
 
 // ---------------------------------------------------------------------------
@@ -326,7 +335,7 @@ export type FlowAdvanceResult =
    * per entry and enters fork mode. The flow runner is not called again until
    * the join condition is met (all runners done).
    */
-  | { kind: 'fork'; runners: Record<string, PlayerTurnInit> }
+  | { kind: 'fork'; nodeId: string; label: string; runners: Record<string, PlayerTurnInit> }
   | { kind: 'complete'; outcome: GameOutcome };
 
 /**

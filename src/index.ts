@@ -11,6 +11,8 @@ export type {
   FlowEnterEvent,
   FlowPhaseEvent,
   FlowExitEvent,
+  TurnStartEvent,
+  TurnEndEvent,
   EffectExecuteEvent,
   InputPromptEvent,
   InputResolveEvent,
@@ -45,6 +47,7 @@ export type { GameOutcome } from "#chaincraft/orchestration/types.js";
 export type {
   PlayerInputSuspension,
   PlayerInput,
+  TurnInfo,
 } from "#chaincraft/orchestration/types.js";
 export { evaluateWinConditions } from "#chaincraft/orchestration/win-conditions.js";
 export type { WinConditionResult } from "#chaincraft/orchestration/win-conditions.js";

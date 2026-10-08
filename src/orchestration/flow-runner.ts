@@ -374,7 +374,7 @@ function advanceTurn(
       };
     }
 
-    return { kind: "fork", runners };
+    return { kind: "fork", nodeId: node.id, label: node.label, runners };
   }
 
   if (ls.phase === "complete-hooks") {

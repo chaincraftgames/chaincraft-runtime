@@ -182,7 +182,7 @@ async function drainGameLevel(
         return { kind: 'prompt', suspension: result.suspension };
       }
       if (result.kind === 'fork') {
-        initPlayerTurns(state, result.runners);
+        initPlayerTurns(state, result.nodeId, result.label, result.runners);
         return { kind: 'fork' };
       }
       // 'enqueue': items were added to state.queue.
@@ -227,6 +227,8 @@ async function drainGameLevel(
  */
 function initPlayerTurns(
   state: GameExecutionState,
+  nodeId: string,
+  label: string,
   playerTurns: Record<string, PlayerTurnInit>,
 ): void {
   state.playerTurns = {};
@@ -240,6 +242,16 @@ function initPlayerTurns(
       nodeLabel: init.nodeLabel,
     };
   }
+  state.turn = { nodeId, label, actors: Object.keys(playerTurns) };
+  state.session.events.emit({ kind: 'turn:start', ...state.turn });
+}
+
+/** Join: all player turns are done. Leaves fork mode and ends the turn. */
+function joinPlayerTurns(state: GameExecutionState): void {
+  const turn = state.turn;
+  state.playerTurns = undefined;
+  state.turn = undefined;
+  if (turn) state.session.events.emit({ kind: 'turn:end', ...turn });
 }
 
 /**
@@ -264,7 +276,7 @@ async function drainAllPlayerTurns(
 
   // Join condition: all players done.
   if (Object.values(playerTurns).every(t => t.done)) {
-    state.playerTurns = undefined;
+    joinPlayerTurns(state);
     return;
   }
 
@@ -380,7 +392,7 @@ async function resumePlayerTurn(
   // (done or pending — the fork invariant), so either the join fires or
   // another player's pending prompt is surfaced.
   if (Object.values(state.playerTurns!).every(t => t.done)) {
-    state.playerTurns = undefined;
+    joinPlayerTurns(state);
     return drainGameLevel(state, deps);
   }
 
