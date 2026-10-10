@@ -38,6 +38,23 @@ function score(state: GameState, playerId: string): number {
   return Number(state.players[playerId].properties.score ?? 0);
 }
 
+/** High Card with the trick turn played simultaneously by all players. */
+function simultaneousHighCardModule(): CompiledGameModule {
+  const base = createHighCardModule();
+  const game = base.flow as Extract<FlowNode, { kind: 'game' }>;
+  const loop = game.children[0] as Extract<FlowNode, { kind: 'loop' }>;
+  const turn = loop.children[0] as Extract<FlowNode, { kind: 'turn' }>;
+  return {
+    ...base,
+    flow: {
+      ...game,
+      children: [
+        { ...loop, children: [{ ...turn, ordering: { kind: 'simultaneous' } }] },
+      ],
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Setup-only module: identical hooks/effects, no turn node. Passes today.
 // ---------------------------------------------------------------------------
@@ -245,20 +262,7 @@ describe('GameController — turn lifecycle', () => {
   });
 
   it('simultaneous: one turn for all actors, ending only at the join', async () => {
-    const base = createHighCardModule();
-    const game = base.flow as Extract<FlowNode, { kind: 'game' }>;
-    const loop = game.children[0] as Extract<FlowNode, { kind: 'loop' }>;
-    const turn = loop.children[0] as Extract<FlowNode, { kind: 'turn' }>;
-    const module: CompiledGameModule = {
-      ...base,
-      flow: {
-        ...game,
-        children: [
-          { ...loop, children: [{ ...turn, ordering: { kind: 'simultaneous' } }] },
-        ],
-      },
-    };
-    const { controller, order } = recordingController(module);
+    const { controller, order } = recordingController(simultaneousHighCardModule());
 
     await controller.init('t3', PLAYERS);
     expect(order.filter((e) => e.startsWith('turn-'))).toEqual(['turn-start:alice,bob']);
@@ -274,5 +278,41 @@ describe('GameController — turn lifecycle', () => {
       'turn-end:alice,bob',
       'turn-start:alice,bob',
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Prompt delivery — hosts (game-server promptId) rely on onPrompt firing
+// exactly once per new suspension.
+// ---------------------------------------------------------------------------
+
+describe('GameController — prompt delivery', () => {
+  it('fires onPrompt once per new suspension and never re-fires one still pending', async () => {
+    const prompts: PlayerInputSuspension[] = [];
+    const controller = new GameController(simultaneousHighCardModule(), {
+      events: { onPrompt: (p) => prompts.push(p) },
+    });
+    const play = (playerId: string) =>
+      controller.processAction({
+        playerId,
+        value: (controller.promptFor(playerId)!.options as string[])[0],
+      });
+
+    await controller.init('p1', PLAYERS);
+    expect(prompts.map((p) => p.awaiting)).toEqual(['alice', 'bob']);
+    const bobPrompt = controller.promptFor('bob');
+
+    prompts.length = 0;
+    await play('alice');
+    expect(prompts).toEqual([]);
+    expect(controller.promptFor('bob')).toBe(bobPrompt);
+
+    prompts.length = 0;
+    await play('bob');
+    expect(prompts.map((p) => p.awaiting)).toEqual(['alice', 'bob']);
+    for (const p of prompts) {
+      expect(controller.promptFor(p.awaiting)).toBe(p);
+    }
+    expect(prompts).not.toContain(bobPrompt);
   });
 });
