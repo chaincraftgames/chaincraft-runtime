@@ -60,6 +60,7 @@ import type {
   QueueGroup,
   GameExecutionDeps,
   OptionsResolver,
+  CollectedInputs,
 } from '#chaincraft/orchestration/types.js';
 import {
   nextPlayerTurnWork as nextPlayerTurnSignal,
@@ -68,10 +69,12 @@ import {
 import {
   advanceGrammarCursor,
 } from '#chaincraft/orchestration/grammar.js';
-import { pruneDeadEnds } from '#chaincraft/orchestration/input-completion.js';
-
-/** Sentinel value indicating no automatic input is available. */
-const NO_AUTO_VALUE = Symbol('no-auto-value');
+import {
+  NO_AUTO_VALUE,
+  autoInputValue,
+  inputOptions,
+  getAnswerRejectionReason,
+} from "#chaincraft/orchestration/input-check.js";
 
 /** The complete set of suspensions the execution is currently waiting on. */
 function collectWaiting(state: GameExecutionState): Suspension[] {
@@ -356,7 +359,7 @@ async function resumePlayerTurn(
     throw new Error(`Player turn suspension for "${input.playerId}" is not a player-input`);
   }
 
-  validatePlayerInput(input, suspension);
+  validatePlayerInput(state, input, suspension, pending.group?.collected ?? {});
 
   if (suspension.input.type.kind === 'action-select') {
     // The player chose an action (or passed). Advance the cursor and get next signal.
@@ -425,7 +428,7 @@ async function drainQueue(
     const item = queue[0];
 
     if (item.kind === 'input') {
-      const auto = resolveAutoInput(item);
+      const auto = autoInputValue(item.input, item.group);
       if (auto !== NO_AUTO_VALUE) {
         item.group.collected[item.input.id] = auto;
         queue.shift();
@@ -437,19 +440,16 @@ async function drainQueue(
       }
 
       const { actorId, collected } = item.group;
-      let options = resolveOptions(state, item.input, actorId, collected);
-      if (options !== undefined) {
-        const later = queue
-          .slice(1)
-          .filter((q): q is InputQueueItem => q.kind === 'input' && q.group === item.group)
-          .map((q) => q.input);
-        options = pruneDeadEnds(state, item.input, options, later, actorId, collected, resolveOptions);
-        if (options.length === 0) {
-          throw new Error(
-            `Input "${item.input.id}" has no valid options for player "${actorId}"; ` +
-              'the action should not have been offered',
-          );
-        }
+      const later = queue
+        .slice(1)
+        .filter((q): q is InputQueueItem => q.kind === 'input' && q.group === item.group)
+        .map((q) => q.input);
+      const options = inputOptions(state, item.input, actorId, collected, later, resolveOptions);
+      if (options !== undefined && options.length === 0) {
+        throw new Error(
+          `Input "${item.input.id}" has no valid options for player "${actorId}"; ` +
+            'the action should not have been offered',
+        );
       }
       const suspension: PlayerInputSuspension = {
         kind: 'player-input',
@@ -507,52 +507,26 @@ function applyGameLevelResume(
   state.pending = undefined;
 }
 
-/** Validate player input against the suspension (anti-cheat). */
-function validatePlayerInput(input: PlayerInput, suspension: PlayerInputSuspension): void {
-  if (suspension.input.type.kind === 'action-select') {
-    const { actions, canPass } = suspension.input.type;
-    const val = input.value as { kind?: string; actionId?: string };
-    if (val?.kind === 'pass') {
-      if (!canPass) throw new Error(`Player "${input.playerId}" submitted pass but passing is not allowed`);
-    } else if (val?.kind === 'act') {
-      if (!actions.includes(val.actionId ?? '')) {
-        throw new Error(`Player "${input.playerId}" submitted invalid action "${val.actionId}"`);
-      }
-    } else {
-      throw new Error(`Player "${input.playerId}" submitted malformed action-select response`);
-    }
-  } else if (suspension.options != undefined && suspension.options.length > 0) {
-    if (!suspension.options.includes(input.value)) {
-      throw new Error(
-        `Player "${input.playerId}" submitted invalid value for input "${suspension.input.id}": not in allowed options`,
-      );
-    }
-  }
-}
-
-/** 
- * Resolves automatic input values for certain input types. Returns NO_AUTO_VALUE 
- * if no automatic value is available. 
+/**
+ * Re-checks a response the controller already accepted via walkResponses. A failure here
+ * means the walk and execution disagree — an engine bug, not an illegal move.
  */
-function resolveAutoInput(item: InputQueueItem): unknown | typeof NO_AUTO_VALUE {
-  const type = item.input.type as { kind: string; inputId?: string };
-
-  if (type.kind === 'effect-originator') {
-    if (!item.group.originatorId) {
-      throw new Error(`Input "${item.input.id}" is effect-originator but group has no originatorId`);
-    }
-    return item.group.originatorId;
-  }
-
-  if (type.kind === 'trigger-input') {
-    const inputId = type.inputId;
-    if (!inputId || !item.group.triggerInputs || !(inputId in item.group.triggerInputs)) {
-      throw new Error(`Input "${item.input.id}" references trigger input "${inputId}" not available`);
-    }
-    return item.group.triggerInputs[inputId];
-  }
-
-  return NO_AUTO_VALUE;
+function validatePlayerInput(
+  state: GameExecutionState,
+  input: PlayerInput,
+  suspension: PlayerInputSuspension,
+  collected: CollectedInputs,
+): void {
+  const rejection = getAnswerRejectionReason(suspension.input, suspension.options, input.value, {
+    session: state.session,
+    actorId: input.playerId,
+    collected,
+  });
+  if (rejection === undefined) return;
+  throw new Error(
+    `Response from "${input.playerId}" to "${suspension.input.id}" passed walkResponses ` +
+      `but was rejected at execution: ${rejection.reason}`,
+  );
 }
 
 /** Resolves an effect definition, either by reference or inline. */

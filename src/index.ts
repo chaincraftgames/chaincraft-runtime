@@ -22,6 +22,8 @@ export type {
   StateChangeInternalEvent,
 } from "#chaincraft/events/emitter.js";
 export { GameController } from "#chaincraft/api/game-controller.js";
+export { IllegalActionError } from "#chaincraft/orchestration/errors.js";
+export { MAX_NUMBER_OPTIONS, numberOptionCount } from "#chaincraft/orchestration/options.js";
 export type {
   GameControllerEvents,
   GameControllerOptions,

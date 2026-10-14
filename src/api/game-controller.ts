@@ -42,6 +42,9 @@ import type {
 import { step } from "#chaincraft/orchestration/game-step.js";
 import { createFlowRunner } from "#chaincraft/orchestration/flow-runner.js";
 import { resolveOptions } from "#chaincraft/orchestration/options.js";
+import { walkResponses } from "#chaincraft/orchestration/walk.js";
+import type { NextInput } from "#chaincraft/orchestration/walk.js";
+import { IllegalActionError } from "#chaincraft/orchestration/errors.js";
 import type { ProjectedState } from "#chaincraft/state/projection.js";
 import {
   projectStateForPlayer,
@@ -185,14 +188,39 @@ export class GameController {
    * prompt/completion.
    */
   public async processAction(input: PlayerInput): Promise<void> {
+    await this.processResponses(input.playerId, [input.value]);
+  }
+
+  /**
+   * Apply a sequence of answers starting at the player's current prompt: the prompt's
+   * answer, then answers to the prompts that would follow within the same action.
+   * All-or-nothing: an illegal answer throws IllegalActionError and changes nothing,
+   * leaving the same prompt pending. A valid partial sequence leaves the next prompt pending.
+   */
+  public async processResponses(playerId: string, responses: readonly unknown[]): Promise<void> {
     if (this.#outcome !== undefined) {
       throw new Error("Game is already complete");
     }
-    if (!this.#pendingPrompts.has(input.playerId)) {
-      throw new Error(`No prompt is awaiting player "${input.playerId}"`);
+    if (!this.#pendingPrompts.has(playerId)) {
+      throw new Error(`No prompt is awaiting player "${playerId}"`);
     }
-    const result = await step(this.execState!, input, this.deps!);
+    const walk = walkResponses(this.execState!, playerId, responses, this.deps!);
+    if (walk.kind === "illegal") {
+      throw new IllegalActionError(
+        `Player "${playerId}" response ${walk.index}` +
+          `${walk.inputId !== undefined ? ` to "${walk.inputId}"` : ""} rejected: ${walk.reason}`,
+        walk.index,
+        walk.inputId,
+        walk.message,
+      );
+    }
+    // Intermediate prompts are internal; settle() reports only where the sequence ends.
+    let result!: StepResult;
+    for (const value of responses) {
+      result = await step(this.execState!, { playerId, value }, this.deps!);
+    }
     await this.settle(result);
+    if (walk.next !== "complete") this.#assertWalkPrediction(playerId, walk.next);
   }
 
   /** Deep snapshot of game state. */
@@ -316,5 +344,19 @@ export class GameController {
   #flushBeforeTurnBoundary(): void {
     this.drainOutbox();
     this.#flushStateChanges();
+  }
+
+  /** The walk and execution must agree on the prompt a partial sequence stops at. */
+  #assertWalkPrediction(playerId: string, predicted: NextInput): void {
+    const actual = this.#pendingPrompts.get(playerId);
+    const sameOptions =
+      actual?.options?.length === predicted.options?.length &&
+      (predicted.options ?? []).every((option, i) => actual?.options?.[i] === option);
+    if (actual?.input.id !== predicted.input.id || !sameOptions) {
+      throw new Error(
+        `walkResponses predicted prompt "${predicted.input.id}" for "${playerId}" but execution ` +
+          `produced ${actual ? `"${actual.input.id}" with different options` : "no prompt"}`,
+      );
+    }
   }
 }

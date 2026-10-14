@@ -10,7 +10,7 @@
 // once the engine passes the actor through.
 // ---------------------------------------------------------------------------
 
-import type { GamepieceSelectInputType } from "#chaincraft/types.js";
+import type { GamepieceSelectInputType, NumberInputType } from "#chaincraft/types.js";
 import type {
   GameExecutionState,
   EngineInput,
@@ -18,8 +18,29 @@ import type {
 } from "#chaincraft/orchestration/types.js";
 import { getInventory } from "#chaincraft/inventory/index.js";
 
+/** Largest whole-number range listed as options; wider ranges are value-checked only. */
+export const MAX_NUMBER_OPTIONS = 32;
+
 /** Determine the valid choices for a player-input prompt. */
 export function resolveOptions(
+  state: GameExecutionState,
+  input: EngineInput,
+  actorId?: string,
+  collected?: CollectedInputs,
+): unknown[] | undefined {
+  const options = structuralOptions(state, input, actorId, collected);
+  if (options === undefined || !("validate" in input) || !input.validate) return options;
+  const validate = input.validate;
+  if (!actorId) {
+    throw new Error(`Input "${input.id}" has validation but no actor to evaluate it for`);
+  }
+  return options.filter((value) =>
+    validate(state.session, actorId, { ...collected, [input.id]: value }),
+  );
+}
+
+/** Choices allowed by the input's kind and filter, before validation. */
+function structuralOptions(
   state: GameExecutionState,
   input: EngineInput,
   actorId?: string,
@@ -34,11 +55,14 @@ export function resolveOptions(
     case "boolean":
       return [true, false];
 
+    case "number":
+      return resolveNumberOptions(type);
+
     case "player-select": {
       let ids = [...state.session.players];
       if (type.excludeSelf && actorId) ids = ids.filter((id) => id !== actorId);
       if (type.filter)
-        ids = ids.filter((id) => type.filter!(state.session, id, actorId));
+        ids = ids.filter((id) => type.filter!(state.session, id, actorId, collected));
       return ids;
     }
 
@@ -51,6 +75,22 @@ export function resolveOptions(
     default:
       return undefined;
   }
+}
+
+/** How many options a number input lists; undefined when fractional, unbounded, or too wide. */
+export function numberOptionCount(type: NumberInputType): number | undefined {
+  if (type.integer === false || type.min === undefined || type.max === undefined) {
+    return undefined;
+  }
+  const count = Math.floor(type.max) - Math.ceil(type.min) + 1;
+  return count <= MAX_NUMBER_OPTIONS ? Math.max(count, 0) : undefined;
+}
+
+function resolveNumberOptions(type: NumberInputType): number[] | undefined {
+  const count = numberOptionCount(type);
+  if (count === undefined) return undefined;
+  const low = Math.ceil(type.min!);
+  return Array.from({ length: count }, (_, i) => low + i);
 }
 
 /** Resolve the valid gamepiece IDs for a gamepiece-select input. */
@@ -92,7 +132,7 @@ function resolveGamepieceOptions(
     );
   }
   if (type.filter) {
-    ids = ids.filter((id) => type.filter!(session, id, actorId));
+    ids = ids.filter((id) => type.filter!(session, id, actorId, collected));
   }
   return ids;
 }

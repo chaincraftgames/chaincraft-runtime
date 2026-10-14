@@ -11,25 +11,11 @@ import type {
   OptionsResolver,
 } from "#chaincraft/orchestration/types.js";
 
-/** Earlier input ids whose answers this input's options depend on. */
-// TODO: replace with compiler-emitted ActionInputDef.dependsOn once filters can read param.*.
-function referencedInputs(input: EngineInput): string[] {
-  const fromPlayer = (input.type as { fromPlayer?: unknown }).fromPlayer;
-  if (
-    typeof fromPlayer === "object" &&
-    fromPlayer !== null &&
-    "param" in fromPlayer
-  ) {
-    return [String((fromPlayer as { param: unknown }).param)];
-  }
-  return [];
-}
-
 function hasDependents(
   inputId: string,
   later: readonly EngineInput[],
 ): boolean {
-  return later.some((input) => referencedInputs(input).includes(inputId));
+  return later.some((input) => "dependsOn" in input && input.dependsOn?.includes(inputId));
 }
 
 /** Whether at least one complete set of answers exists for `inputs`. */

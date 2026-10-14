@@ -628,6 +628,7 @@ export type GamepieceSelectInputType = {
     session: GameSession,
     pieceId: string,
     actorId?: string,
+    inputs?: Readonly<Record<string, unknown>>,
   ) => boolean;
 };
 
@@ -638,6 +639,7 @@ export type PlayerSelectInputType = {
     session: GameSession,
     playerId: string,
     actorId?: string,
+    inputs?: Readonly<Record<string, unknown>>,
   ) => boolean;
 };
 
@@ -662,7 +664,16 @@ export type ActionInputDef = {
   readonly id: string;
   readonly label?: string;
   readonly type: ActionInputType;
-  readonly validation?: string;
+  /** True when the answers so far (including this input's candidate in `inputs[id]`) are legal. */
+  readonly validate?: (
+    session: GameSession,
+    actorId: string,
+    inputs: Readonly<Record<string, unknown>>,
+  ) => boolean;
+  /** Player-facing text for a failed `validate`. */
+  readonly validationMessage?: string;
+  /** Earlier input ids of the same action whose answers this input's options depend on. */
+  readonly dependsOn?: readonly string[];
 };
 
 export type ActionDef = {

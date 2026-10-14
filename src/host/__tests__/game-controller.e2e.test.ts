@@ -13,6 +13,7 @@
 import type { CompiledGameModule, FlowNode, GameState } from '#chaincraft/types.js';
 import type { PlayerInputSuspension } from '#chaincraft/orchestration/types.js';
 import { GameController } from '#chaincraft/api/game-controller.js';
+import { IllegalActionError } from '#chaincraft/orchestration/errors.js';
 import { drive, type ScriptStep, type TranscriptEntry } from '../scripted-driver.js';
 import { createHighCardModule } from '../fixtures/high-card.js';
 
@@ -314,5 +315,40 @@ describe('GameController — prompt delivery', () => {
       expect(controller.promptFor(p.awaiting)).toBe(p);
     }
     expect(prompts).not.toContain(bobPrompt);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Illegal responses — rejected with IllegalActionError, nothing applied, the
+// same prompt stays pending so the player can resubmit.
+// ---------------------------------------------------------------------------
+
+describe("GameController — illegal responses", () => {
+  it("rejects a value outside the prompt's options without mutating state or firing events", async () => {
+    const events: string[] = [];
+    const controller = new GameController(createHighCardModule(), {
+      events: {
+        onStateChange: () => events.push("state-change"),
+        onMessage: () => events.push("message"),
+        onPrompt: () => events.push("prompt"),
+        onTurnStart: () => events.push("turn-start"),
+        onTurnEnd: () => events.push("turn-end"),
+      },
+    });
+    await controller.init("i1", PLAYERS);
+    const prompt = controller.promptFor("alice")!;
+    const before = controller.getState();
+    events.length = 0;
+
+    const rejected = controller.processAction({ playerId: "alice", value: "not-a-card" });
+    await expect(rejected).rejects.toBeInstanceOf(IllegalActionError);
+    await expect(rejected).rejects.toMatchObject({ index: 0, inputId: "card" });
+
+    expect(events).toEqual([]);
+    expect(controller.getState()).toEqual(before);
+    expect(controller.promptFor("alice")).toBe(prompt);
+
+    await controller.processAction({ playerId: "alice", value: (prompt.options as string[])[0] });
+    expect(controller.promptFor("bob")).toBeDefined();
   });
 });
