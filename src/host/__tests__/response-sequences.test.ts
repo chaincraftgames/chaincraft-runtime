@@ -202,6 +202,70 @@ describe("GameController.processResponses — illegal sequences change nothing",
   });
 });
 
+describe("GameController.queryResponses", () => {
+  it("predicts the next prompt of a partial sequence, with its options", async () => {
+    const { controller } = await started();
+
+    const result = controller.queryResponses("alice", [act("bid"), 1]);
+
+    expect(result).toEqual({
+      kind: "ok",
+      next: { input: bid.inputs[1], options: [4, 5, 6] },
+    });
+  });
+
+  it("reports a complete sequence", async () => {
+    const { controller } = await started();
+
+    expect(controller.queryResponses("alice", [act("bid"), 3, 1])).toEqual({
+      kind: "ok",
+      next: "complete",
+    });
+  });
+
+  it("reports the rejected answer as processResponses would", async () => {
+    const { controller } = await started();
+
+    expect(controller.queryResponses("alice", [act("bid"), 1, 2])).toEqual({
+      kind: "illegal",
+      index: 2,
+      inputId: "face",
+      reason: expect.any(String),
+      message: "Bid a higher face",
+    });
+  });
+
+  it("changes nothing and fires no events", async () => {
+    const { controller, recorded, events } = await started();
+    const prompt = controller.promptFor("alice");
+    const before = controller.getState();
+
+    controller.queryResponses("alice", [act("bid"), 3, 1]);
+    controller.queryResponses("alice", [act("bid"), 1]);
+    controller.queryResponses("alice", [act("steal")]);
+
+    expect(events).toEqual([]);
+    expect(recorded).toEqual([]);
+    expect(controller.getState()).toEqual(before);
+    expect(controller.promptFor("alice")).toBe(prompt);
+  });
+
+  it("answers from a mid-action prompt", async () => {
+    const { controller } = await started();
+    await controller.processResponses("alice", [act("bid"), 1]);
+
+    expect(controller.queryResponses("alice", [5])).toEqual({ kind: "ok", next: "complete" });
+  });
+
+  it("throws for a player with no pending prompt", async () => {
+    const { controller } = await started();
+
+    expect(() => controller.queryResponses("bob", [act("bid")])).toThrow(
+      'No prompt is awaiting player "bob"',
+    );
+  });
+});
+
 describe("GameController.processResponses — walk/execution agreement", () => {
   it("fails loudly when execution stops at a different prompt than the walk predicted", async () => {
     // A rule that flips once the engine resolves an answer: the walk sees one option list,

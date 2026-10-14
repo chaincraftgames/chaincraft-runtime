@@ -50,7 +50,10 @@ export type {
   PlayerInputSuspension,
   PlayerInput,
   TurnInfo,
+  EngineInput,
+  InputOption,
 } from "#chaincraft/orchestration/types.js";
+export type { NextInput, WalkResult } from "#chaincraft/orchestration/walk.js";
 export { evaluateWinConditions } from "#chaincraft/orchestration/win-conditions.js";
 export type { WinConditionResult } from "#chaincraft/orchestration/win-conditions.js";
 export type { ProjectedState } from "#chaincraft/state/projection.js";

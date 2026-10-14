@@ -15,6 +15,7 @@ import type {
   GameExecutionState,
   EngineInput,
   CollectedInputs,
+  InputOption,
 } from "#chaincraft/orchestration/types.js";
 import { getInventory } from "#chaincraft/inventory/index.js";
 
@@ -27,7 +28,7 @@ export function resolveOptions(
   input: EngineInput,
   actorId?: string,
   collected?: CollectedInputs,
-): unknown[] | undefined {
+): InputOption[] | undefined {
   const options = structuralOptions(state, input, actorId, collected);
   if (options === undefined || !("validate" in input) || !input.validate) return options;
   const validate = input.validate;
@@ -45,7 +46,7 @@ function structuralOptions(
   input: EngineInput,
   actorId?: string,
   collected?: CollectedInputs,
-): unknown[] | undefined {
+): InputOption[] | undefined {
   const type = input.type;
 
   switch (type.kind) {
@@ -99,7 +100,7 @@ function resolveGamepieceOptions(
   type: GamepieceSelectInputType,
   actorId?: string,
   collected?: CollectedInputs,
-): unknown[] | undefined {
+): string[] | undefined {
   const { session } = state;
   const invConfig = session.config.inventories[type.inventory];
   const scope = invConfig?.scope ?? "game";

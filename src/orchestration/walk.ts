@@ -10,6 +10,7 @@ import type {
   EngineInput,
   GameExecutionDeps,
   GameExecutionState,
+  InputOption,
   PlayerInputSuspension,
   QueueGroup,
 } from "#chaincraft/orchestration/types.js";
@@ -24,11 +25,12 @@ import type { Rejection } from "#chaincraft/orchestration/input-check.js";
 /** The prompt that would follow the walked answers. */
 export interface NextInput {
   input: EngineInput;
-  options?: unknown[];
+  options?: InputOption[];
 }
 
 export type WalkResult =
-  | { kind: "ok"; next: NextInput | "complete" }
+  /** "boundary": the remaining inputs need effects to run first (reserved; nothing emits it yet). */
+  | { kind: "ok"; next: NextInput | "complete" | "boundary" }
   | {
       kind: "illegal";
       /** Position of the first rejected answer in the submitted sequence. */
@@ -62,7 +64,7 @@ export function walkResponses(
   const answer = (
     input: EngineInput,
     collected: CollectedInputs,
-    options: unknown[] | undefined,
+    options: InputOption[] | undefined,
     value: unknown,
   ) =>
     getAnswerRejectionReason(input, options, value, {

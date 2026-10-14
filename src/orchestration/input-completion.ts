@@ -8,6 +8,7 @@ import type {
   CollectedInputs,
   EngineInput,
   GameExecutionState,
+  InputOption,
   OptionsResolver,
 } from "#chaincraft/orchestration/types.js";
 
@@ -64,12 +65,12 @@ export function hasCompletion(
 export function pruneDeadEnds(
   state: GameExecutionState,
   input: EngineInput,
-  options: unknown[],
+  options: InputOption[],
   later: readonly EngineInput[],
   actorId: string,
   collected: CollectedInputs,
   resolveOptions: OptionsResolver,
-): unknown[] {
+): InputOption[] {
   if (!hasDependents(input.id, later)) return options;
   return options.filter((value) =>
     hasCompletion(

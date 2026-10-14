@@ -8,6 +8,7 @@ import type {
   CollectedInputs,
   EngineInput,
   GameExecutionState,
+  InputOption,
   OptionsResolver,
   QueueGroup,
 } from "#chaincraft/orchestration/types.js";
@@ -49,7 +50,7 @@ export function inputOptions(
   collected: CollectedInputs,
   later: readonly EngineInput[],
   resolveOptions: OptionsResolver,
-): unknown[] | undefined {
+): InputOption[] | undefined {
   const options = resolveOptions(state, input, actorId, collected);
   if (options === undefined) return undefined;
   return pruneDeadEnds(state, input, options, later, actorId, collected, resolveOptions);

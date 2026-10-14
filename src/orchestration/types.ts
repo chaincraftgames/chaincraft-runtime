@@ -109,6 +109,9 @@ export type EngineInput =
   | ActionInputDef 
   | { id: string; type: { kind: 'action-select'; actions: string[]; canPass: boolean }; label?: string };
 
+/** One choice in an input's option list: an enum value, boolean, whole number, or piece/player id. */
+export type InputOption = string | number | boolean;
+
 /** Suspension representing a player input. */
 export interface PlayerInputSuspension {
   kind: 'player-input';
@@ -126,7 +129,7 @@ export interface PlayerInputSuspension {
    * player ids, positions, etc.), computed lazily against current state.
    * Not used for action-select — those carry actions/canPass on their type.
    */
-  options?: unknown[];
+  options?: InputOption[];
   label?: string;
   /**
    * Optional deadline. On expiry, still-`awaiting` players resolve via a
@@ -354,7 +357,7 @@ export type OptionsResolver = (
     input: EngineInput,
     actorId?: string,
     collected?: CollectedInputs,
-) => unknown[] | undefined;
+) => InputOption[] | undefined;
 
 /** Everything step() needs beyond EngineState itself — the compiled game and the two pluggable resolvers it can't own. */
 export type GameExecutionDeps = {

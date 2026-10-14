@@ -43,7 +43,7 @@ import { step } from "#chaincraft/orchestration/game-step.js";
 import { createFlowRunner } from "#chaincraft/orchestration/flow-runner.js";
 import { resolveOptions } from "#chaincraft/orchestration/options.js";
 import { walkResponses } from "#chaincraft/orchestration/walk.js";
-import type { NextInput } from "#chaincraft/orchestration/walk.js";
+import type { NextInput, WalkResult } from "#chaincraft/orchestration/walk.js";
 import { IllegalActionError } from "#chaincraft/orchestration/errors.js";
 import type { ProjectedState } from "#chaincraft/state/projection.js";
 import {
@@ -220,7 +220,18 @@ export class GameController {
       result = await step(this.execState!, { playerId, value }, this.deps!);
     }
     await this.settle(result);
-    if (walk.next !== "complete") this.#assertWalkPrediction(playerId, walk.next);
+    if (typeof walk.next === "object") this.#assertWalkPrediction(playerId, walk.next);
+  }
+
+  /**
+   * Judge a sequence of answers to the player's current prompt as processResponses would,
+   * without applying it. Changes nothing and fires no events.
+   */
+  public queryResponses(playerId: string, responses: readonly unknown[]): WalkResult {
+    if (!this.#pendingPrompts.has(playerId)) {
+      throw new Error(`No prompt is awaiting player "${playerId}"`);
+    }
+    return walkResponses(this.execState!, playerId, responses, this.deps!);
   }
 
   /** Deep snapshot of game state. */
