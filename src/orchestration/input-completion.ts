@@ -1,7 +1,8 @@
 // ---------------------------------------------------------------------------
 // Input completion — look-ahead over an action's remaining inputs.
-// Sound because all inputs are collected before any effect runs: state is
-// fixed while answering, so option lists depend only on (state, actor, collected).
+// Sound within one segment of an action (inputs, then effects): state is fixed
+// while a segment's inputs are answered, so option lists depend only on
+// (state, actor, collected). Callers never look ahead across a segment.
 // ---------------------------------------------------------------------------
 
 import type {

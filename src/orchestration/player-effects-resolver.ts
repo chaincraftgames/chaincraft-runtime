@@ -57,7 +57,13 @@ export function nextPlayerTurnWork(
   const actions = structuralActions.filter((id) => {
     const def = module.actions[id];
     if (def?.precondition && !def.precondition(_state.session, playerId)) return false;
-    return !def || hasCompletion(_state, def.inputs, playerId, {}, resolveOptions);
+    return !def || hasCompletion(
+      _state, 
+      def.segments[0]?.inputs ?? [], 
+      playerId, 
+      {}, 
+      resolveOptions
+    );
   });
 
   if (actions.length === 0 && !canPass) {
@@ -100,11 +106,17 @@ export function explodeAction(
   actorId: string,
   module: CompiledGameModule,
 ): QueueItem[] {
+  const items: QueueItem[] = [];
   const action = module.actions[actionId];
   if (!action) throw new Error(`Action "${actionId}" not found in module`);
-  const group: QueueGroup = { actorId, collected: {} };
-  return [
-    ...action.inputs.map((input) => ({ kind: "input" as const, input, group })),
-    ...action.effects.map((effect) => ({ kind: "effect" as const, effect, group })),
-  ];
+  const group: QueueGroup = { actorId, actionId, collected: {} };
+  for (const [segmentIndex, segment] of action.segments.entries()) {
+    for (const input of segment.inputs) {
+      items.push({ kind: "input" as const, input, group, segment: segmentIndex });
+    }
+    for (const effect of segment.effects) {
+      items.push({ kind: "effect" as const, effect, group, segment: segmentIndex });
+    }
+  }
+  return items;
 }

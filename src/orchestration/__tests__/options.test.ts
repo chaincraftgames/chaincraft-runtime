@@ -168,8 +168,8 @@ describe('input look-ahead', () => {
   it('does not offer an action whose dependent input has no answer', () => {
     const module = {
       actions: {
-        attack: { id: 'attack', inputs: attackInputs, effects: [] },
-        wait: { id: 'wait', inputs: [], effects: [] },
+        attack: { id: 'attack', segments: [{ inputs: attackInputs, effects: [] }] },
+        wait: { id: 'wait', segments: [{ inputs: [], effects: [] }] },
       },
     } as unknown as CompiledGameModule;
     const signal = nextPlayerTurnWork(
@@ -200,15 +200,15 @@ describe("inputOptions", () => {
 });
 
 describe("filters and validation read earlier answers", () => {
-  it("passes collected answers to a gamepiece filter", () => {
+  it("passes collected answers to a gamepiece selection's validation", () => {
     const otherCreature: EngineInput = {
       id: "defender",
       type: {
         kind: "gamepiece-select",
         inventory: "field",
         fromPlayer: "self",
-        filter: (_session, pieceId, _actorId, inputs) => pieceId !== inputs?.attacker,
       },
+      validate: (_session, _actorId, inputs) => inputs.defender !== inputs.attacker,
       dependsOn: ["attacker"],
     };
     expect(resolveOptions(makeExecState(), otherCreature, "p1", { attacker: "a1" })).toEqual(["a2"]);

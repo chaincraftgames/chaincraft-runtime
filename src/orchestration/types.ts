@@ -55,6 +55,12 @@ export interface QueueGroup {
   triggerInputs?: CollectedInputs;
   /** Inputs collected so far for this group, keyed by input id. */
   collected: CollectedInputs;
+  /** The ID of the action this group belongs to, if applicable. */
+  actionId?: string;
+  /** Input items consumed for this group, in order (auto-filled ones included). Drives undo. */
+  answered?: InputQueueItem[];
+  /** Set when the actor chose this action via action-select: the cursor before that choice. */
+  selection?: { cursor: PlayerTurnCursor };
 };
 
 /** Queue item representing a player input. */
@@ -64,6 +70,8 @@ export interface InputQueueItem {
   input: EngineInput;
   /** Group this input belongs to. */
   group: QueueGroup;
+  /** Segment within the action/effect this input belongs to. */
+  segment?: number;
 };
 
 /** Queue item representing an effect. */
@@ -73,6 +81,8 @@ export interface EffectQueueItem {
   effect: EffectRef;
   /** Group this effect belongs to. */
   group: QueueGroup;
+  /** Segment within the action/effect this effect belongs to. */
+  segment?: number;
 };
 
 export type QueueItem = InputQueueItem | EffectQueueItem;
@@ -170,6 +180,8 @@ export interface PendingSuspension {
   group?: QueueGroup;
   /** Input id awaiting a value (player-input, queue-level only). */
   inputId?: string;
+  /** Segment within the action/effect this input belongs to. */
+  segment?: number;
 };
 
 /** 

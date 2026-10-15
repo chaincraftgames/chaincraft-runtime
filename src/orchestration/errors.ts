@@ -14,3 +14,8 @@ export class IllegalActionError extends Error {
     super(message);
   }
 }
+
+/** The player has no answer to take back within the current action segment. Nothing was changed. */
+export class UndoNotAllowedError extends Error {
+  override readonly name = "UndoNotAllowedError";
+}

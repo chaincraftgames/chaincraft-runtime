@@ -39,6 +39,12 @@ export function autoInputValue(input: EngineInput, group: QueueGroup): unknown {
   return NO_AUTO_VALUE;
 }
 
+/** Whether a player (not the engine) answers this input. */
+export function isPlayerAnswered(input: EngineInput): boolean {
+  const kind = input.type.kind;
+  return kind !== "effect-originator" && kind !== "trigger-input";
+}
+
 /**
  * Valid answers for `input` given earlier answers, with dead ends pruned against
  * the action's `later` inputs. undefined means the input has no finite list.

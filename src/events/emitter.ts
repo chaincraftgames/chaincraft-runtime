@@ -28,6 +28,8 @@ export type GameEvent =
   | EffectExecuteEvent
   | InputPromptEvent
   | InputResolveEvent
+  | InputUndoEvent
+  | ActionForfeitEvent
   | MessageEmitEvent
   | StateChangeInternalEvent;
 
@@ -94,6 +96,21 @@ export interface InputResolveEvent {
   kind: "input:resolve";
   playerId: string;
   value: unknown;
+}
+
+/** An event emitted when a player takes back an answer; `inputId` is the prompt asked again. */
+export interface InputUndoEvent {
+  kind: "input:undo";
+  playerId: string;
+  inputId: string;
+}
+
+/** An event emitted when an action's remaining inputs became unanswerable after its effects ran. */
+export interface ActionForfeitEvent {
+  kind: "action:forfeit";
+  playerId: string;
+  actionId: string | undefined;
+  inputId: string;
 }
 
 /** An event emitted when a message is emitted. */

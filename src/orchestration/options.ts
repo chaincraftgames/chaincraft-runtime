@@ -40,7 +40,7 @@ export function resolveOptions(
   );
 }
 
-/** Choices allowed by the input's kind and filter, before validation. */
+/** Choices allowed by the input's kind and structure, before validation. */
 function structuralOptions(
   state: GameExecutionState,
   input: EngineInput,
@@ -62,8 +62,6 @@ function structuralOptions(
     case "player-select": {
       let ids = [...state.session.players];
       if (type.excludeSelf && actorId) ids = ids.filter((id) => id !== actorId);
-      if (type.filter)
-        ids = ids.filter((id) => type.filter!(state.session, id, actorId, collected));
       return ids;
     }
 
@@ -131,9 +129,6 @@ function resolveGamepieceOptions(
     ids = ids.filter(
       (id) => session.state.gamepieces[id]?.typeId === type.ofType,
     );
-  }
-  if (type.filter) {
-    ids = ids.filter((id) => type.filter!(session, id, actorId, collected));
   }
   return ids;
 }

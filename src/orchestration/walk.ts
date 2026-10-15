@@ -1,8 +1,9 @@
 // ---------------------------------------------------------------------------
 // Response walk — judges a sequence of answers to a player's pending prompt
-// without mutating anything. All of an action's inputs are collected before
-// any of its effects run, so state is fixed for the whole walk and each answer
-// is judged exactly as step() would judge it when the answers are applied.
+// without mutating anything. An action's inputs are collected a segment at a
+// time, with its effects running between segments, so state is fixed only
+// WITHIN a segment. The walk stops at the segment boundary ("boundary"); each
+// answer before it is judged exactly as step() would judge it when applied.
 // ---------------------------------------------------------------------------
 
 import type {
@@ -11,6 +12,7 @@ import type {
   GameExecutionDeps,
   GameExecutionState,
   InputOption,
+  InputQueueItem,
   PlayerInputSuspension,
   QueueGroup,
 } from "#chaincraft/orchestration/types.js";
@@ -19,6 +21,7 @@ import {
   autoInputValue,
   inputOptions,
   getAnswerRejectionReason,
+  isPlayerAnswered,
 } from "#chaincraft/orchestration/input-check.js";
 import type { Rejection } from "#chaincraft/orchestration/input-check.js";
 
@@ -29,7 +32,7 @@ export interface NextInput {
 }
 
 export type WalkResult =
-  /** "boundary": the remaining inputs need effects to run first (reserved; nothing emits it yet). */
+  /** "boundary": the remaining inputs can only be answered after the segment's effects run. */
   | { kind: "ok"; next: NextInput | "complete" | "boundary" }
   | {
       kind: "illegal";
@@ -86,21 +89,33 @@ export function walkResponses(
   // The rest of the action the first answer commits to, with a private copy of its answers.
   let group: QueueGroup;
   let upcoming: readonly EngineInput[];
+  let hasMore: boolean; // player inputs remain after the current segment's effects
   if (suspension.input.type.kind === "action-select") {
     const choice = first as
       | { kind: "act"; actionId: string }
       | { kind: "pass" };
     group = { actorId: playerId, collected: {} };
-    upcoming =
-      choice.kind === "act" ? deps.module.actions[choice.actionId].inputs : [];
+    const segments =
+      choice.kind === "act" ? deps.module.actions[choice.actionId].segments : [];
+    upcoming = segments[0]?.inputs ?? [];
+    // hasMore is true if there is more than 1 segment and it's input is not auto
+    hasMore = segments.slice(1).some((s) => s.inputs.some(isPlayerAnswered));
   } else {
     group = {
       ...pending.group!,
       collected: { ...pending.group!.collected, [suspension.input.id]: first },
     };
-    upcoming = playerTurn.queue
-      .filter((item) => item.kind === "input" && item.group === pending.group)
-      .map((item) => (item as { input: EngineInput }).input);
+    const segment = pending.segment ?? 0;
+    const groupInputs = playerTurn.queue.filter(
+      (item): item is InputQueueItem =>
+        item.kind === "input" && item.group === pending.group,
+    );
+    upcoming = groupInputs
+      .filter((item) => (item.segment ?? 0) === segment)
+      .map((item) => item.input);
+    hasMore = groupInputs.some(
+      (item) => (item.segment ?? 0) > segment && isPlayerAnswered(item.input),
+    );
   }
 
   let index = 1;
@@ -132,9 +147,15 @@ export function walkResponses(
   }
 
   if (index < responses.length) {
-    return { kind: "illegal", index, reason: "the action is already complete" };
+    return {
+      kind: "illegal",
+      index,
+      reason: hasMore
+        ? "the remaining inputs can only be answered after the action's effects run"
+        : "the action is already complete",
+    };
   }
-  return { kind: "ok", next: "complete" };
+  return { kind: "ok", next: hasMore ? "boundary" : "complete" };
 }
 
 function illegal(

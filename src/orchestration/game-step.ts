@@ -75,6 +75,7 @@ import {
   inputOptions,
   getAnswerRejectionReason,
 } from "#chaincraft/orchestration/input-check.js";
+import { hasCompletion } from "#chaincraft/orchestration/input-completion.js";
 
 /** The complete set of suspensions the execution is currently waiting on. */
 function collectWaiting(state: GameExecutionState): Suspension[] {
@@ -131,6 +132,7 @@ interface DrainContext {
     suspension: PlayerInputSuspension,
     group: QueueGroup,
     inputId: string,
+    segment?: number,
   ): DrainSignal;
 }
 
@@ -294,7 +296,7 @@ async function drainAllPlayerTurns(
  * Drains one player turn until it suspends, completes, or needs work.
  * Calls nextPlayerTurnSignal when the player's queue empties.
  */
-async function drainPlayerTurn(
+export async function drainPlayerTurn(
   state: GameExecutionState,
   playerId: string,
   playerTurn: PlayerTurnState,
@@ -323,9 +325,9 @@ async function drainPlayerTurn(
       playerTurn.pending = { suspension: signal.suspension };
       return { kind: 'prompt', suspension: signal.suspension };
     },
-    onPlayerInputNeeded(suspension, group, inputId): DrainSignal {
+    onPlayerInputNeeded(suspension, group, inputId, segment?: number): DrainSignal {
       // Action-input collection for this player's in-progress action.
-      playerTurn.pending = { suspension, group, inputId };
+      playerTurn.pending = { suspension, group, inputId, segment };
       return { kind: 'prompt', suspension };
     },
   };
@@ -367,10 +369,13 @@ async function resumePlayerTurn(
     const val = input.value as { kind: 'act'; actionId: string } | { kind: 'pass' };
     const passed = val.kind === 'pass';
     const actionId = passed ? undefined : val.actionId;
+    const cursorBeforeChoice = { ...playerTurn.cursor };
     advanceGrammarCursor(playerTurn.cursor, playerTurn.grammar, passed, actionId);
 
     if (!passed && actionId) {
-      playerTurn.queue.push(...explodeAction(actionId, input.playerId, deps.module));
+      const items = explodeAction(actionId, input.playerId, deps.module);
+      if (items.length > 0) items[0].group.selection = { cursor: cursorBeforeChoice };
+      playerTurn.queue.push(...items);
     }
     // Fall through to drain the player turn.
   } else {
@@ -379,6 +384,12 @@ async function resumePlayerTurn(
       throw new Error(`Player "${input.playerId}" pending has no group/inputId for queue-level input`);
     }
     pending.group.collected[pending.inputId] = input.value;
+    (pending.group.answered ??= []).push({
+      kind: 'input',
+      input: suspension.input,
+      group: pending.group,
+      segment: pending.segment,
+    });
     state.session.events.emit({
       kind: 'input:resolve',
       playerId: input.playerId,
@@ -431,6 +442,7 @@ async function drainQueue(
       const auto = autoInputValue(item.input, item.group);
       if (auto !== NO_AUTO_VALUE) {
         item.group.collected[item.input.id] = auto;
+        (item.group.answered ??= []).push(item);
         queue.shift();
         continue;
       }
@@ -442,8 +454,28 @@ async function drainQueue(
       const { actorId, collected } = item.group;
       const later = queue
         .slice(1)
-        .filter((q): q is InputQueueItem => q.kind === 'input' && q.group === item.group)
+        .filter((q): q is InputQueueItem => 
+          q.kind === 'input' && 
+          q.group === item.group &&
+          (q.segment ?? 0) === (item.segment ?? 0)
+        )
         .map((q) => q.input);
+      // Past segment 0 the action's effects already ran, so a dead end forfeits the rest.
+      if (
+        (item.segment ?? 0) > 0 &&
+        !hasCompletion(state, [item.input, ...later], actorId, collected, resolveOptions)
+      ) {
+        for (let i = queue.length - 1; i >= 0; i--) {
+          if (queue[i].group === item.group) queue.splice(i, 1);
+        }
+        state.session.events.emit({
+          kind: 'action:forfeit',
+          playerId: actorId,
+          actionId: item.group.actionId,
+          inputId: item.input.id,
+        });
+        continue;
+      }
       const options = inputOptions(state, item.input, actorId, collected, later, resolveOptions);
       if (options !== undefined && options.length === 0) {
         throw new Error(
@@ -464,7 +496,12 @@ async function drainQueue(
         suspension,
       });
       queue.shift();
-      return ctx.onPlayerInputNeeded(suspension, item.group, item.input.id);
+      return ctx.onPlayerInputNeeded(
+        suspension, 
+        item.group, 
+        item.input.id, 
+        item.segment ?? 0
+      );
     }
 
     // Effect item.

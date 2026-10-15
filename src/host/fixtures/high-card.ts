@@ -167,18 +167,22 @@ const playCard: ActionDef = {
   id: 'playCard',
   label: 'Play a card',
   description: 'Play one card from your hand to the table.',
-  inputs: [
+  segments: [
     {
-      id: 'card',
-      label: 'Choose a card to play',
-      type: { kind: 'gamepiece-select', inventory: 'hand', ofType: 'card', fromPlayer: 'self' },
-    },
-  ],
-  effects: [
-    {
-      kind: 'move',
-      from: { inventory: 'hand', select: { id: { param: 'card' } } },
-      to: { inventory: 'table' },
+      inputs: [
+        {
+          id: 'card',
+          label: 'Choose a card to play',
+          type: { kind: 'gamepiece-select', inventory: 'hand', ofType: 'card', fromPlayer: 'self' },
+        },
+      ],
+      effects: [
+        {
+          kind: 'move',
+          from: { inventory: 'hand', select: { id: { param: 'card' } } },
+          to: { inventory: 'table' },
+        },
+      ],
     },
   ],
 };

@@ -43,6 +43,7 @@ import { step } from "#chaincraft/orchestration/game-step.js";
 import { createFlowRunner } from "#chaincraft/orchestration/flow-runner.js";
 import { resolveOptions } from "#chaincraft/orchestration/options.js";
 import { walkResponses } from "#chaincraft/orchestration/walk.js";
+import { canUndo as canUndoLastAnswer, undoLastAnswer } from "#chaincraft/orchestration/undo.js";
 import type { NextInput, WalkResult } from "#chaincraft/orchestration/walk.js";
 import { IllegalActionError } from "#chaincraft/orchestration/errors.js";
 import type { ProjectedState } from "#chaincraft/state/projection.js";
@@ -51,6 +52,7 @@ import {
   projectStateChanges,
 } from "#chaincraft/state/projection.js";
 import type { StateChangeEvent } from "#chaincraft/api/state-change-events.js";
+import type { ActionForfeitEvent } from "#chaincraft/events/emitter.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -72,6 +74,8 @@ export interface GameControllerEvents {
   onComplete?(outcome: GameOutcome): void;
   /** A turn started. Fires before any prompt of that turn. */
   onTurnStart?(turn: TurnInfo): void;
+  /** A player's action was abandoned mid-way: its remaining inputs had no valid answer after earlier effects ran. */
+  onActionForfeit?(forfeit: { playerId: string; actionId: string | undefined; inputId: string }): void;
   /** A turn ended (all its actors done). Always precedes onComplete. */
   onTurnEnd?(turn: TurnInfo): void;
   // -- State observation -----------------------------------------------------
@@ -173,6 +177,11 @@ export class GameController {
       this.#flushBeforeTurnBoundary();
       this.options.events?.onTurnStart?.(turn);
     });
+    session.events.on("action:forfeit", (event) => {
+      const { playerId, actionId, inputId } = event as ActionForfeitEvent;
+      this.#flushBeforeTurnBoundary();
+      this.options.events?.onActionForfeit?.({ playerId, actionId, inputId });
+    });
     session.events.on("turn:end", (event) => {
       const { kind: _kind, ...turn } = event as { kind: string } & TurnInfo;
       this.#flushBeforeTurnBoundary();
@@ -232,6 +241,28 @@ export class GameController {
       throw new Error(`No prompt is awaiting player "${playerId}"`);
     }
     return walkResponses(this.execState!, playerId, responses, this.deps!);
+  }
+
+  /** Whether the player can take back their last answer within the current action segment. */
+  public canUndo(playerId: string): boolean {
+    if (this.#outcome !== undefined || !this.#pendingPrompts.has(playerId)) return false;
+    return canUndoLastAnswer(this.execState!, playerId);
+  }
+
+  /**
+   * Take back the player's last answer within the current action segment (or the action
+   * choice itself, before any answer) and re-prompt it. Throws UndoNotAllowedError when
+   * canUndo is false.
+   */
+  public async undo(playerId: string): Promise<void> {
+    if (this.#outcome !== undefined) {
+      throw new Error("Game is already complete");
+    }
+    if (!this.#pendingPrompts.has(playerId)) {
+      throw new Error(`No prompt is awaiting player "${playerId}"`);
+    }
+    const result = await undoLastAnswer(this.execState!, playerId, this.deps!);
+    await this.settle(result);
   }
 
   /** Deep snapshot of game state. */

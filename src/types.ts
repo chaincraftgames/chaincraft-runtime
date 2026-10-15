@@ -593,7 +593,7 @@ export type RepeatGrammar = {
 // ---------------------------------------------------------------------------
 
 // --- Action input type variants (discriminated on `kind`) ---
-
+/** An action input that is a number. */
 export type NumberInputType = {
   readonly kind: "number";
   readonly min?: number;
@@ -602,47 +602,43 @@ export type NumberInputType = {
   readonly integer?: boolean;
 };
 
+/** An action input that is a string. */
 export type StringInputType = { readonly kind: "string" };
 
+/** An action input that is a boolean. */
 export type BooleanInputType = { readonly kind: "boolean" };
 
+/** An action input that is an enum (select one from a list of string values). */
 export type EnumInputType = {
   readonly kind: "enum";
   readonly values: string[];
 };
 
+/** An action auto input that references the originator of the effect. */
 export type EffectOriginatorInputType = { readonly kind: "effect-originator" };
 
+/** An action auto input that references a trigger input by ID. */
 export type TriggerInputType = {
   readonly kind: "trigger-input";
   readonly inputId: string;
 };
 
+/** An action input that selects gamepieces from an inventory. */
 export type GamepieceSelectInputType = {
   readonly kind: "gamepiece-select";
   readonly inventory: string;
   readonly ofType?: string;
   readonly count?: number;
   readonly fromPlayer?: "self" | { param: string };
-  readonly filter?: (
-    session: GameSession,
-    pieceId: string,
-    actorId?: string,
-    inputs?: Readonly<Record<string, unknown>>,
-  ) => boolean;
 };
 
+/** An action input that selects a player. */
 export type PlayerSelectInputType = {
   readonly kind: "player-select";
   readonly excludeSelf?: boolean;
-  readonly filter?: (
-    session: GameSession,
-    playerId: string,
-    actorId?: string,
-    inputs?: Readonly<Record<string, unknown>>,
-  ) => boolean;
 };
 
+/** An action input that selects a position within an inventory. */
 export type InventoryPositionInputType = {
   readonly kind: "inventory-position";
   readonly inventory: string;
@@ -660,11 +656,16 @@ export type ActionInputType =
   | PlayerSelectInputType
   | InventoryPositionInputType;
 
+/** Definition of a single action input within an action. */
 export type ActionInputDef = {
   readonly id: string;
   readonly label?: string;
   readonly type: ActionInputType;
-  /** True when the answers so far (including this input's candidate in `inputs[id]`) are legal. */
+  /**
+   * True when the answers so far (candidate in `inputs[id]`) are legal. Narrows
+   * option lists and rejects submitted answers; for selections it is the compiled 
+   * `filter`.
+   */
   readonly validate?: (
     session: GameSession,
     actorId: string,
@@ -676,12 +677,21 @@ export type ActionInputDef = {
   readonly dependsOn?: readonly string[];
 };
 
+/**
+ * An ActionSegment is a contiguous sequence of inputs and effects within an action.
+ * Undos are supported within a single action segment regardless of the turn undo policy.
+ */
+export type ActionSegmentDef = {
+  readonly inputs: ActionInputDef[];
+  readonly effects: EffectRef[];
+};
+
+/** The definition of an action within the game. */
 export type ActionDef = {
   readonly id: string;
   readonly label: string;
   readonly description: string;
-  readonly inputs: ActionInputDef[];
-  readonly effects: EffectRef[];
+  readonly segments: ActionSegmentDef[];
   readonly precondition?: (session: GameSession, actorId: string) => boolean;
 };
 

@@ -85,8 +85,7 @@ function makeModule(flow: FlowNode, actionIds: string[], log: string[] = []): Co
       id,
       label: id,
       description: id,
-      inputs: [],
-      effects: [{ kind: 'log', tag: id }],
+      segments: [{ inputs: [], effects: [{ kind: 'log', tag: id }] }],
     };
   }
   return {
