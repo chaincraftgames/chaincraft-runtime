@@ -162,8 +162,6 @@ export function resolveValue(
  * Supported paths:
  *   game.property.<id>           — game-scoped property (stored or computed)
  *   player.property.<id>         — target player's property (stored or computed)
- *   game.inventory.<id>.count    — game-level inventory piece count
- *   player.inventory.<id>.count  — target player's inventory piece count
  *   source.property.<id>         — property on the source piece (from ctx.sourcePieceId)
  *   target.property.<id>         — property on the target piece (from ctx.targetPieceId)
  *   trigger.<field>              — triggering state-write fact (from ctx.trigger; passives only)
@@ -210,60 +208,6 @@ export function resolveStateVar(
       unknown
     >;
     return playerState[segments[2]];
-  }
-
-  // game.inventory.<id>.count
-  if (
-    segments[0] === "game" &&
-    segments[1] === "inventory" &&
-    segments[3] === "count"
-  ) {
-    const invId = segments[2];
-    const invData = session.state.gameInventories[invId];
-    if (!invData) return 0;
-    // Count the non-null entries (structure-agnostic)
-    if ("pieceIds" in invData) {
-      return invData.pieceIds.length;
-    }
-    if ("slots" in invData) {
-      return invData.slots.filter((s) => s !== null).length;
-    }
-    if ("cells" in invData) {
-      return Object.values(invData.cells).length;
-    }
-    if ("nodes" in invData) {
-      return Object.values(invData.nodes).flat().length;
-    }
-    return 0;
-  }
-
-  // player.inventory.<id>.count
-  if (
-    segments[0] === "player" &&
-    segments[1] === "inventory" &&
-    segments[3] === "count"
-  ) {
-    const playerId = ctx.targetPlayerId ?? ctx.actorId;
-    if (!playerId) return 0;
-    const player = session.state.players[playerId];
-    if (!player) return 0;
-    const invId = segments[2];
-    const invData = player.inventories[invId];
-    if (!invData) return 0;
-    // Count the non-null entries (structure-agnostic)
-    if ("pieceIds" in invData) {
-      return invData.pieceIds.length;
-    }
-    if ("slots" in invData) {
-      return invData.slots.filter((s) => s !== null).length;
-    }
-    if ("cells" in invData) {
-      return Object.values(invData.cells).length;
-    }
-    if ("nodes" in invData) {
-      return Object.values(invData.nodes).flat().length;
-    }
-    return 0;
   }
 
   return undefined;

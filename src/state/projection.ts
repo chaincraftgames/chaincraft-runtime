@@ -46,7 +46,7 @@ export interface ProjectedGamepiece {
   ownerId: string;
   properties: Record<string, unknown>;
   faceUp: boolean;
-  faceValue?: number;
+  faceValue?: number | string;
   orientationIndex?: number;
   exhausted: boolean;
 }

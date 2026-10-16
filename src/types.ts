@@ -96,7 +96,7 @@ export type Gamepiece = {
   ownerId: string;
   properties: Record<string, unknown>;
   faceUp: boolean; // meaningful when type has hasFaceState: true
-  faceValue?: number; // meaningful when type has faceCount (dice); range [1, faceCount]
+  faceValue?: number | string; // meaningful when type has faces; one entry of the type's face table
   orientationIndex?: number; // meaningful when type has orientationCount; range [0, orientationCount)
   exhausted: boolean; // meaningful when type has exhaustible: true
   visibleTo: string[] | "all" | null; // null = fall back to inventory default
@@ -312,6 +312,9 @@ export type GamepieceTypeConfig = {
   properties: Record<string, GamepiecePropertyConfig>;
   hasFaceState?: boolean;
   exhaustible?: boolean;
+  /** Face table; a roll picks one entry uniformly (repeats weight a face). Compiler expands faceCount into this. */
+  faces?: (number | string)[];
+  /** Shorthand for faces [1..faceCount]; kept for hand-built configs. */
   faceCount?: number;
   orientationCount?: number;
   inventorySlots?: string[];

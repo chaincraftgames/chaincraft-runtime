@@ -1300,6 +1300,29 @@ describe('executeRoll', () => {
     }));
     expect(session.state.gamepieces['weapon-1'].faceValue).toBeUndefined();
   });
+
+  it('picks from an explicit faces table, including strings', async () => {
+    const session = makeDiceSession();
+    session.config.gamepieceTypes['die'] = { category: 'dice', faces: ['skull', 'brain'], properties: {} };
+    await executeRoll(session, makeCtx({
+      effectDef: { pieces: { inventory: 'dice-tray', select: 'all' } },
+    }));
+    for (const id of ['die-1', 'die-2']) {
+      expect(['skull', 'brain']).toContain(session.state.gamepieces[id].faceValue);
+    }
+  });
+
+  it('emits piece:rolled with the rolled face', async () => {
+    const session = makeDiceSession();
+    const rolled: unknown[] = [];
+    session.events.on('state:change', (e) => rolled.push((e as { change: unknown }).change));
+    await executeRoll(session, makeCtx({
+      effectDef: { pieces: { inventory: 'dice-tray', select: 'top' } },
+    }));
+    expect(rolled).toEqual([
+      { kind: 'piece:rolled', pieceId: 'die-1', faceValue: session.state.gamepieces['die-1'].faceValue },
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------
