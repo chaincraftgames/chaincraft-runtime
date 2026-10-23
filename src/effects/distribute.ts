@@ -28,7 +28,7 @@
 // ---------------------------------------------------------------------------
 
 import type { GameSession, EffectContext } from "#chaincraft/types.js";
-import { selectGamepieces } from "#chaincraft/effects/gamepiece-selector.js";
+import { selectGamepieceRefs } from "#chaincraft/effects/gamepiece-selector.js";
 import type { GamepieceSelector } from "#chaincraft/effects/gamepiece-selector.js";
 import { getInventory } from "#chaincraft/inventory/index.js";
 
@@ -79,24 +79,16 @@ export async function executeDistribute(
   // 2. Select pieces from source — override count to totalNeeded
   const totalNeeded = countPerTarget * targetPlayerIds.length;
   const fromWithCount = { ...from, count: totalNeeded };
-  const pieceIds = selectGamepieces(session, ctx, fromWithCount);
-  if (pieceIds.length === 0) return;
+  const selected = selectGamepieceRefs(session, ctx, fromWithCount);
+  if (selected.length === 0) return;
+  const pieceIds = selected.map((r) => r.pieceId);
 
-  // 3. Remove selected pieces from the source inventory
+  // 3. Remove selected pieces from the inventory each came from
   const sourceInvId = from.inventory;
-  const sourceInvConfig = session.config.inventories[sourceInvId];
-  const sourceScope = sourceInvConfig?.scope ?? "game";
-  const sourcePlayerId =
-    sourceScope === "player"
-      ? (ctx.targetPlayerId ?? ctx.actorId ?? undefined)
-      : undefined;
-  const sourceInv = getInventory(
-    session,
-    sourceInvId,
-    sourcePlayerId ?? undefined,
-  );
-  for (const id of pieceIds) {
-    if (sourceInv?.has(id)) sourceInv.remove(id);
+  // The deal event reports one source; a multi-player source reports the first owner.
+  const sourcePlayerId = selected[0].ownerId;
+  for (const { pieceId, inventory } of selected) {
+    if (inventory.has(pieceId)) inventory.remove(pieceId);
   }
 
   // 4. Distribute to targets

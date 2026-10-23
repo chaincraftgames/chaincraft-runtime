@@ -200,7 +200,7 @@ describe('executeMove — dynamic player targeting', () => {
       effectDef: {
         kind: 'move',
         from: {
-          player: { stateRef: 'game.property.roundLoser' },
+          player: { kind: 'stateRef', path: 'game.property.roundLoser' },
           inventory: 'hand',
           select: 'random',
           count: 1,
@@ -222,7 +222,7 @@ describe('executeMove — dynamic player targeting', () => {
       effectDef: {
         kind: 'move',
         from: { inventory: 'deck', select: 'top', count: 1 },
-        to: { player: { param: 'target-player' }, inventory: 'hand' },
+        to: { player: { kind: 'param', inputId: 'target-player' }, inventory: 'hand' },
       },
     }));
     const p2Hand = session.state.players['p2'].inventories['hand'] as any;
@@ -243,6 +243,94 @@ describe('executeMove — dynamic player targeting', () => {
     }));
     const discard = session.state.gameInventories['discard'] as any;
     expect(discard.pieceIds).toContain('card-2');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Explicit player targets / no-actor contexts
+// ---------------------------------------------------------------------------
+
+describe('executeMove — player targets', () => {
+  function addP2Card(session: GameSession) {
+    (session.state.players['p2'].inventories['hand'] as any).pieceIds.push('card-5');
+    session.state.gamepieces['card-5'] = {
+      typeId: 'card', ownerId: 'p2', properties: {}, faceUp: true, exhausted: false, visibleTo: null,
+    };
+  }
+
+  it('player: all removes each piece from the inventory it came from', async () => {
+    const session = makeSession();
+    addP2Card(session);
+    await executeMove(session, makeCtx({
+      actorId: null,
+      effectDef: {
+        kind: 'move',
+        from: { player: { kind: 'all' }, inventory: 'hand', select: 'all' },
+        to: { inventory: 'discard' },
+      },
+    }));
+    expect((session.state.players['p1'].inventories['hand'] as any).pieceIds).toEqual([]);
+    expect((session.state.players['p2'].inventories['hand'] as any).pieceIds).toEqual([]);
+    expect((session.state.gameInventories['discard'] as any).pieceIds.sort()).toEqual(['card-4', 'card-5']);
+  });
+
+  it('player: all-other selects only the other players', async () => {
+    const session = makeSession();
+    addP2Card(session);
+    await executeMove(session, makeCtx({
+      actorId: 'p1',
+      effectDef: {
+        kind: 'move',
+        from: { player: { kind: 'all-other' }, inventory: 'hand', select: 'all' },
+        to: { inventory: 'discard' },
+      },
+    }));
+    expect((session.state.players['p1'].inventories['hand'] as any).pieceIds).toEqual(['card-4']);
+    expect((session.state.gameInventories['discard'] as any).pieceIds).toEqual(['card-5']);
+  });
+
+  it('throws instead of widening to all players when a player-scoped source has no player and no actor', async () => {
+    const session = makeSession();
+    await expect(
+      executeMove(session, makeCtx({
+        actorId: null,
+        effectDef: {
+          kind: 'move',
+          from: { inventory: 'hand', select: 'all' },
+          to: { inventory: 'discard' },
+        },
+      })),
+    ).rejects.toThrow('has no player and no actor');
+    expect((session.state.players['p1'].inventories['hand'] as any).pieceIds).toEqual(['card-4']);
+  });
+
+  it('throws when a stateRef player does not resolve to a player', async () => {
+    const session = makeSession();
+    session.state.gameProperties['roundLoser'] = '';
+    await expect(
+      executeMove(session, makeCtx({
+        effectDef: {
+          kind: 'move',
+          from: { player: { kind: 'stateRef', path: 'game.property.roundLoser' }, inventory: 'hand', select: 'all' },
+          to: { inventory: 'discard' },
+        },
+      })),
+    ).rejects.toThrow('unknown player');
+    expect((session.state.players['p1'].inventories['hand'] as any).pieceIds).toEqual(['card-4']);
+  });
+
+  it('throws when a player-scoped destination has no player and no actor', async () => {
+    const session = makeSession();
+    await expect(
+      executeMove(session, makeCtx({
+        actorId: null,
+        effectDef: {
+          kind: 'move',
+          from: { inventory: 'deck', select: 'top', count: 1 },
+          to: { inventory: 'hand' },
+        },
+      })),
+    ).rejects.toThrow('has no player and no actor');
   });
 });
 

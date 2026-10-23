@@ -6,14 +6,14 @@
 //
 // Source (from: GamepieceSelectorSchema):
 //   - inventory: source inventory type ID
-//   - player: optional dynamic player targeting (stateRef or param)
+//   - player: optional PlayerTarget; may span several players (each piece leaves its own owner's inventory)
 //   - select: top | bottom | random | all | { id }
 //   - count: how many (default 1)
 //   - ofType: filter by piece type
 //
 // Destination (to: InventoryTargetSchema):
 //   - inventory: destination inventory type ID
-//   - player: optional dynamic player targeting for destination
+//   - player: optional single-player target for a player-scoped destination
 //   - at: optional placement (stack-top, line-index, grid-cell, graph-node, or { param })
 // ---------------------------------------------------------------------------
 
@@ -22,13 +22,14 @@ import type {
   EffectContext,
   InventoryPosition,
 } from "#chaincraft/types.js";
-import { selectGamepieces } from "#chaincraft/effects/gamepiece-selector.js";
+import { selectGamepieceRefs } from "#chaincraft/effects/gamepiece-selector.js";
 import type { GamepieceSelector } from "#chaincraft/effects/gamepiece-selector.js";
 import { getInventory } from "#chaincraft/inventory/index.js";
-import { resolvePlayerRef } from "#chaincraft/effects/player-target.js";
+import { resolvePlayerTarget } from "#chaincraft/effects/player-target.js";
+import type { PlayerTarget } from "#chaincraft/effects/player-target.js";
 
 type InventoryTarget = {
-  player?: { stateRef: string } | { param: string };
+  player?: Extract<PlayerTarget, { kind: "actor" | "param" | "stateRef" }>;
   inventory: string;
   at?: InventoryPosition | { param: string };
 };
@@ -58,47 +59,26 @@ export async function executeMove(
 ): Promise<void> {
   const { from, to } = ctx.effectDef;
 
-  // 1. Resolve source player if explicitly specified
-  const fromPlayerRef = from.player;
-  const fromPlayerId = fromPlayerRef
-    ? resolvePlayerRef(session, ctx, fromPlayerRef)
-    : undefined;
+  // 1. Select pieces from source; each remembers the inventory it came from
+  const selected = selectGamepieceRefs(session, ctx, from);
+  if (selected.length === 0) return;
 
-  // Override targetPlayerId for source selection if explicitly specified
-  const fromCtx = fromPlayerId ? { ...ctx, targetPlayerId: fromPlayerId } : ctx;
-
-  // 2. Select pieces from source
-  const pieceIds = selectGamepieces(session, fromCtx, from);
-  if (pieceIds.length === 0) return;
-
-  // 3. Resolve source inventory
   const fromInventoryId = from.inventory;
-  const fromInvConfig = session.config.inventories[fromInventoryId];
-  const fromScope = fromInvConfig?.scope ?? "game";
-  const resolvedFromPlayerId =
-    fromScope === "player"
-      ? (fromPlayerId ?? fromCtx.targetPlayerId ?? fromCtx.actorId)
-      : undefined;
-  const sourceInv = getInventory(
-    session,
-    fromInventoryId,
-    resolvedFromPlayerId ?? undefined,
-  );
 
-  // 4. Resolve destination player
-  const toPlayerRef = to.player;
-  const toPlayerId = toPlayerRef
-    ? resolvePlayerRef(session, ctx, toPlayerRef)
-    : undefined;
-
-  // 5. Resolve destination inventory
+  // 2. Resolve destination inventory (always a single player when player-scoped)
   const toInventoryId = to.inventory;
   const toInvConfig = session.config.inventories[toInventoryId];
   const toScope = toInvConfig?.scope ?? "game";
-  const resolvedToPlayerId =
-    toScope === "player"
-      ? (toPlayerId ?? ctx.targetPlayerId ?? ctx.actorId)
-      : undefined;
+  let resolvedToPlayerId: string | undefined;
+  if (toScope === "player") {
+    if (!to.player && !ctx.actorId) {
+      throw new Error(
+        `Move destination "${toInventoryId}" is player-scoped but has no player and no actor in context; ` +
+          `name the destination player explicitly`,
+      );
+    }
+    resolvedToPlayerId = resolvePlayerTarget(session, ctx, to.player)[0];
+  }
   const destInv = getInventory(
     session,
     toInventoryId,
@@ -113,15 +93,15 @@ export async function executeMove(
     );
   }
 
-  // 6. Resolve placement
+  // 3. Resolve placement
   const placement = resolvePlacement(to.at, ctx.actionInputs);
 
-  // 7. Move each piece
-  for (const pieceId of pieceIds) {
+  // 4. Move each piece
+  for (const { pieceId, inventory: sourceInv, ownerId: fromOwnerId } of selected) {
     // Capture from-position before removal so hidden-piece clients know which slot vacated.
-    const fromPosition = sourceInv?.positionOf(pieceId);
+    const fromPosition = sourceInv.positionOf(pieceId);
     // Remove from source (if found there — it may already be absent for game:unassigned)
-    if (sourceInv?.has(pieceId)) {
+    if (sourceInv.has(pieceId)) {
       sourceInv.remove(pieceId);
     }
 
@@ -142,7 +122,7 @@ export async function executeMove(
         from: {
           inventory: {
             inventoryId: fromInventoryId,
-            ownerId: resolvedFromPlayerId ?? undefined,
+            ownerId: fromOwnerId,
           },
           position: fromPosition,
         },
