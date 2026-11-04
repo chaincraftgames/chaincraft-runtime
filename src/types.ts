@@ -162,8 +162,8 @@ export interface GamepieceStateBase {
 //   - Production: commit-reveal or hash-chain backed provider
 //   - On-chain:   replay with revealed seed — same PRNG, same outputs
 //
-// Effect executors (set-random, shuffle, distribute with random select)
-// call nextFloat() and apply their distribution logic on top.
+// Effect executors (shuffle, roll, distribute with random select) and
+// { random } property values call nextFloat() and apply their distribution logic on top.
 // ---------------------------------------------------------------------------
 
 export interface RngProvider {
@@ -211,12 +211,9 @@ export type GameSession = {
 };
 
 export type Message = {
-  /** Spec-level recipient intent: 'all', 'actor', 'opponents', 'role:<id>', or a player ID. */
-  to: string;
   /**
-   * Resolved list of player IDs who should receive this message. Set by the runtime
-   * at effect execution time (where actor context is available). Hosts should use
-   * this list for delivery rather than interpreting `to` themselves.
+   * Player IDs who receive this message, resolved by the runtime at effect
+   * execution time. Hosts deliver to exactly this list.
    */
   recipients: string[];
   content: string;
@@ -632,7 +629,7 @@ export type GamepieceSelectInputType = {
   readonly inventory: string;
   readonly ofType?: string;
   readonly count?: number;
-  readonly fromPlayer?: "self" | { param: string };
+  readonly fromPlayer?: "actor" | { param: string };
 };
 
 /** An action input that selects a player. */
@@ -645,7 +642,7 @@ export type PlayerSelectInputType = {
 export type InventoryPositionInputType = {
   readonly kind: "inventory-position";
   readonly inventory: string;
-  readonly fromPlayer?: "self" | { param: string };
+  readonly fromPlayer?: "actor" | { param: string };
 };
 
 export type ActionInputType =
@@ -770,4 +767,10 @@ export interface CompiledGameModule {
 
   /** Passive bindings compiled from catalog — registered on the EffectBus at session init. */
   readonly passiveActivations?: PassiveActivation[];
+
+  /**
+   * Ids of effectDefs that cannot be undone (RNG, information crossing a visibility
+   * boundary, custom, passive-triggering). Absent means unclassified — treat all as irreversible.
+   */
+  readonly irreversibleEffects?: readonly string[];
 }

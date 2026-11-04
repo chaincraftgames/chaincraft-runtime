@@ -51,21 +51,21 @@ describe('selectGamepieces — player targeting', () => {
 
   it('player: all selects across every player', () => {
     const ids = selectGamepieces(makeSession(), ctx(null), {
-      player: { kind: 'all' }, inventory: 'cup', select: 'all',
+      player: 'all', inventory: 'cup', select: 'all',
     });
     expect(ids.sort()).toEqual(['d1', 'd2', 'd3']);
   });
 
   it('count applies to each player inventory separately', () => {
     const ids = selectGamepieces(makeSession(), ctx(null), {
-      player: { kind: 'all' }, inventory: 'cup', select: 'top', count: 1,
+      player: 'all', inventory: 'cup', select: 'top', count: 1,
     });
     expect(ids).toHaveLength(2);
   });
 
   it('player: matching selects only matching players', () => {
     const ids = selectGamepieces(makeSession(), ctx(null), {
-      player: { kind: 'matching', condition: (_s, pid) => pid === 'p2' }, inventory: 'cup', select: 'all',
+      player: { where: (_s, pid) => pid === 'p2' }, inventory: 'cup', select: 'all',
     });
     expect(ids).toEqual(['d3']);
   });
@@ -74,7 +74,7 @@ describe('selectGamepieces — player targeting', () => {
     const session = makeSession();
     session.state.gameProperties['loser'] = '';
     expect(() => selectGamepieces(session, ctx(null), {
-      player: { kind: 'stateRef', path: 'game.property.loser' }, inventory: 'cup', select: 'all',
+      player: { stateRef: 'game.property.loser' }, inventory: 'cup', select: 'all',
     })).toThrow('unknown player');
   });
 

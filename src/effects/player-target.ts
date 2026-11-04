@@ -2,24 +2,27 @@
 // Player target resolution
 //
 // Resolves a PlayerTarget from an effect definition to a concrete list of
-// player IDs. Used by set-state (and future player-scoped effects) to
-// determine which player(s) an effect applies to.
+// player IDs. Used by every player-scoped effect (set-state targets, selector
+// players, move destinations, message/reveal recipients).
 // ---------------------------------------------------------------------------
 
 import type { GameSession, EffectContext } from '#chaincraft/types.js';
 import { resolveStateVar } from './resolve-value.js';
 
 // ---------------------------------------------------------------------------
-// PlayerTarget types (mirrors gamedef PlayerTargetSchema)
+// PlayerTarget types (mirrors gamedef PlayerTargetSchema; `where` is compiled)
 // ---------------------------------------------------------------------------
 
+export type PlayerPredicate = (session: GameSession, playerId: string, actorId?: string) => boolean;
+
 export type PlayerTarget =
-  | { kind: 'actor' }
-  | { kind: 'all' }
-  | { kind: 'all-other' }
-  | { kind: 'param'; inputId: string }
-  | { kind: 'stateRef'; path: string }
-  | { kind: 'matching'; condition: (session: GameSession, playerId: string, actorId?: string) => boolean };
+  | 'actor'
+  | 'all'
+  | 'all-other'
+  | { param: string }
+  | { stateRef: string }
+  | { where: PlayerPredicate }
+  | { roles: string[] };
 
 /**
  * Resolve a player target to a list of player IDs.
@@ -35,60 +38,67 @@ export function resolvePlayerTarget(
   target: PlayerTarget | undefined,
 ): string[] {
   // Default: acting player
-  if (!target || target.kind === 'actor') {
+  if (target === undefined || target === 'actor') {
     if (!ctx.actorId) {
       throw new Error('Player target "actor" requires an actorId in the effect context');
     }
     return [ctx.actorId];
   }
 
-  if (target.kind === 'all') {
+  if (target === 'all') {
     return [...session.players];
   }
 
-  if (target.kind === 'all-other') {
+  if (target === 'all-other') {
     if (!ctx.actorId) {
       throw new Error('Player target "all-other" requires an actorId in the effect context');
     }
     return session.players.filter((id) => id !== ctx.actorId);
   }
 
-  if (target.kind === 'param') {
-    const playerId = ctx.actionInputs[target.inputId];
+  if (typeof target === 'object' && 'param' in target) {
+    const playerId = ctx.actionInputs[target.param];
     if (typeof playerId !== 'string') {
       throw new Error(
-        `Player target param "${target.inputId}" resolved to ${typeof playerId}, expected string player ID`,
+        `Player target param "${target.param}" resolved to ${typeof playerId}, expected string player ID`,
       );
     }
     if (!session.state.players[playerId]) {
-      throw new Error(`Player target param "${target.inputId}" resolved to unknown player "${playerId}"`);
+      throw new Error(`Player target param "${target.param}" resolved to unknown player "${playerId}"`);
     }
     return [playerId];
   }
 
-  if (target.kind === 'stateRef') {
-    if (!target.path.startsWith('game.property.') && !target.path.startsWith('player.property.')) {
-      throw new Error(`Player target stateRef path "${target.path}" must be game.property.<id> or player.property.<id>`);
+  if (typeof target === 'object' && 'stateRef' in target) {
+    const path = target.stateRef;
+    if (!path.startsWith('game.property.') && !path.startsWith('player.property.')) {
+      throw new Error(`Player target stateRef path "${path}" must be game.property.<id> or player.property.<id>`);
     }
-    const playerId = resolveStateVar(session, ctx, target.path);
+    const playerId = resolveStateVar(session, ctx, path);
     if (typeof playerId !== 'string') {
       throw new Error(
-        `Player target stateRef "${target.path}" resolved to ${typeof playerId}, expected string player ID`,
+        `Player target stateRef "${path}" resolved to ${typeof playerId}, expected string player ID`,
       );
     }
     if (!session.state.players[playerId]) {
-      throw new Error(`Player target stateRef "${target.path}" resolved to unknown player "${playerId}"`);
+      throw new Error(`Player target stateRef "${path}" resolved to unknown player "${playerId}"`);
     }
     return [playerId];
   }
 
-  if (target.kind === 'matching') {
+  if (typeof target === 'object' && 'where' in target) {
     return session.players.filter((playerId) =>
-      target.condition(session, playerId, ctx.actorId ?? undefined),
+      target.where(session, playerId, ctx.actorId ?? undefined),
     );
   }
 
-  throw new Error(`Unknown player target kind: ${(target as PlayerTarget).kind}`);
+  if (typeof target === 'object' && 'roles' in target) {
+    return session.players.filter((playerId) =>
+      session.state.players[playerId]?.roles.some((role) => target.roles.includes(role)),
+    );
+  }
+
+  throw new Error(`Unknown player target: ${JSON.stringify(target)}`);
 }
 
 

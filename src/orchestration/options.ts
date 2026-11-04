@@ -105,7 +105,7 @@ function resolveGamepieceOptions(
 
   let playerId: string | undefined;
   if (scope === "player") {
-    if (type.fromPlayer && type.fromPlayer !== "self") {
+    if (type.fromPlayer && type.fromPlayer !== "actor") {
       const paramId = type.fromPlayer.param;
       const owner = collected?.[paramId];
       if (typeof owner !== "string" || !session.players.includes(owner)) {

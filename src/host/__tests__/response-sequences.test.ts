@@ -38,7 +38,7 @@ const handSelect = {
   kind: "gamepiece-select",
   inventory: "hand",
   ofType: "card",
-  fromPlayer: "self",
+  fromPlayer: "actor",
 } as const;
 
 const moveParam = (param: string, inventory: string) =>

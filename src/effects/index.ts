@@ -1,6 +1,5 @@
 export { executeSetState } from "#chaincraft/effects/set-state.js";
 export { executeUpdate } from "#chaincraft/effects/update.js";
-export { executeSetRandom } from "#chaincraft/effects/set-random.js";
 export { executeMessage } from "#chaincraft/effects/message.js";
 export { executeMove } from "#chaincraft/effects/move.js";
 export { executeShuffle } from "#chaincraft/effects/shuffle.js";
@@ -38,7 +37,7 @@ export type {
 } from "#chaincraft/effects/effect-bus.js";
 export { selectGamepieces } from "#chaincraft/effects/gamepiece-selector.js";
 export { resolvePlayerTarget } from "#chaincraft/effects/player-target.js";
-export type { PlayerTarget } from "#chaincraft/effects/player-target.js";
+export type { PlayerTarget, PlayerPredicate } from "#chaincraft/effects/player-target.js";
 export { resolveValue } from "#chaincraft/effects/resolve-value.js";
 export type {
   PropertyValue,

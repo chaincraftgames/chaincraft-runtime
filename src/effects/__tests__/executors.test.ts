@@ -2,7 +2,6 @@ import type { GameSession, GameState, GameConfig, EffectContext } from '#chaincr
 import type { CompiledValueFn } from '../resolve-value.js';
 import { executeSetState } from '../set-state.js';
 import { executeUpdate } from '../update.js';
-import { executeSetRandom } from '../set-random.js';
 import { executeMessage } from '../message.js';
 import { executeFlip } from '../flip.js';
 import { executeRoll } from '../roll.js';
@@ -208,7 +207,7 @@ describe('executeSetState', () => {
       effectDef: {
         path: 'player.property.roundsWon',
         value: 5,
-        target: { kind: 'all' },
+        target: 'all',
       },
     }));
     expect(session.state.players['p1'].properties['roundsWon']).toBe(5);
@@ -222,7 +221,7 @@ describe('executeSetState', () => {
       effectDef: {
         path: 'player.property.roundsWon',
         value: { delta: -1 },
-        target: { kind: 'all-other' },
+        target: 'all-other',
       },
     }));
     // p1 is actor, so unchanged
@@ -238,7 +237,7 @@ describe('executeSetState', () => {
       effectDef: {
         path: 'player.property.roundsWon',
         value: 99,
-        target: { kind: 'param', inputId: 'targetPlayer' },
+        target: { param: 'targetPlayer' },
       },
     }));
     expect(session.state.players['p1'].properties['roundsWon']).toBe(0);
@@ -252,7 +251,7 @@ describe('executeSetState', () => {
       effectDef: {
         path: 'player.property.roundsWon',
         value: 100,
-        target: { kind: 'stateRef', path: 'game.property.gameWinner' },
+        target: { stateRef: 'game.property.gameWinner' },
       },
     }));
     expect(session.state.players['p2'].properties['roundsWon']).toBe(100);
@@ -268,8 +267,7 @@ describe('executeSetState', () => {
         path: 'player.property.roundsWon',
         value: { delta: 1 },
         target: {
-          kind: 'matching',
-          condition: (_s: GameSession, playerId: string) =>
+          where: (_s: GameSession, playerId: string) =>
             ((session.state.players[playerId]?.properties['roundsWon'] as number) ?? 0) >= 2,
         },
       },
@@ -288,8 +286,7 @@ describe('executeSetState', () => {
         path: 'player.property.roundsWon',
         value: 7,
         target: {
-          kind: 'matching',
-          condition: (_s: GameSession, playerId: string) => {
+          where: (_s: GameSession, playerId: string) => {
             const inv = session.state.players[playerId]?.inventories['forge'];
             const count = inv && 'pieceIds' in inv ? inv.pieceIds.length : 0;
             return count >= 1;
@@ -301,15 +298,14 @@ describe('executeSetState', () => {
     expect(session.state.players['p2'].properties['roundsWon']).toBe(0);
   });
 
-  it('matching with no players matching returns empty (no-op)', async () => {
+  it('where with no players matching returns empty (no-op)', async () => {
     const session = makeSession();
     await executeSetState(session, makeCtx({
       effectDef: {
         path: 'player.property.roundsWon',
         value: 999,
         target: {
-          kind: 'matching',
-          condition: (_s: GameSession, playerId: string) =>
+          where: (_s: GameSession, playerId: string) =>
             ((session.state.players[playerId]?.properties['roundsWon'] as number) ?? 0) > 100,
         },
       },
@@ -1007,96 +1003,128 @@ describe('executeUpdate', () => {
 });
 
 // ---------------------------------------------------------------------------
-// set-random
+// { random } property values
 // ---------------------------------------------------------------------------
 
-describe('executeSetRandom', () => {
+describe('{ random } values', () => {
+  /** Session whose RNG returns the given floats in order. */
+  function sessionWithRolls(rolls: number[]): GameSession {
+    let i = 0;
+    return { ...makeSession(), rng: { nextFloat: () => rolls[i++] } };
+  }
+
   it('picks from equal-probability options (deterministic with seed)', async () => {
     const session = makeSession(100);
-    await executeSetRandom(session, makeCtx({
+    await executeSetState(session, makeCtx({
       effectDef: {
-        source: {
-          kind: 'options',
-          options: [
-            { value: 'hearts' },
-            { value: 'diamonds' },
-            { value: 'clubs' },
-            { value: 'spades' },
-          ],
-        },
         path: 'game.property.gameWinner',
+        value: {
+          random: {
+            options: [
+              { value: 'hearts' },
+              { value: 'diamonds' },
+              { value: 'clubs' },
+              { value: 'spades' },
+            ],
+          },
+        },
       },
     }));
     const result = session.state.gameProperties['gameWinner'];
     expect(['hearts', 'diamonds', 'clubs', 'spades']).toContain(result);
   });
 
-  it('picks from weighted options', async () => {
-    // With seed 42, run multiple times to verify the weighting affects distribution
-    const results: unknown[] = [];
-    for (let seed = 0; seed < 100; seed++) {
-      const session = makeSession(seed);
-      await executeSetRandom(session, makeCtx({
-        effectDef: {
-          source: {
-            kind: 'options',
-            options: [
-              { value: true, weight: 0.25 },
-              { value: false, weight: 0.75 },
-            ],
-          },
-          path: 'game.property.includeReversal',
-        },
+  it('maps the RNG draw onto equal-probability options', async () => {
+    const options = [{ value: 'a' }, { value: 'b' }, { value: 'c' }, { value: 'd' }];
+    const picks: unknown[] = [];
+    for (const r of [0, 0.3, 0.6, 0.99]) {
+      const session = sessionWithRolls([r]);
+      await executeSetState(session, makeCtx({
+        effectDef: { path: 'game.property.gameWinner', value: { random: { options } } },
       }));
-      results.push(session.state.gameProperties['includeReversal']);
+      picks.push(session.state.gameProperties['gameWinner']);
     }
-    const trueCount = results.filter((r) => r === true).length;
-    // With 100 samples and 25% probability, we expect roughly 25 trues
-    // Allow wide range for statistical validity
-    expect(trueCount).toBeGreaterThan(5);
-    expect(trueCount).toBeLessThan(60);
+    expect(picks).toEqual(['a', 'b', 'c', 'd']);
   });
 
-  it('picks an integer from a range', async () => {
-    const session = makeSession(42);
-    await executeSetRandom(session, makeCtx({
-      effectDef: {
-        source: { kind: 'range', min: 1, max: 6 },
-        path: 'game.property.currentRound',
-      },
-    }));
-    const result = session.state.gameProperties['currentRound'] as number;
-    expect(result).toBeGreaterThanOrEqual(1);
-    expect(result).toBeLessThanOrEqual(6);
-    expect(Number.isInteger(result)).toBe(true);
+  it('honours option weights', async () => {
+    const options = [
+      { value: true, weight: 0.25 },
+      { value: false, weight: 0.75 },
+    ];
+    const picks: unknown[] = [];
+    for (const r of [0.24, 0.26]) {
+      const session = sessionWithRolls([r]);
+      await executeSetState(session, makeCtx({
+        effectDef: { path: 'game.property.includeReversal', value: { random: { options } } },
+      }));
+      picks.push(session.state.gameProperties['includeReversal']);
+    }
+    expect(picks).toEqual([true, false]);
+  });
+
+  it('picks an integer from a range, inclusive at both ends', async () => {
+    const picks: unknown[] = [];
+    for (const r of [0, 0.5, 0.999]) {
+      const session = sessionWithRolls([r]);
+      await executeSetState(session, makeCtx({
+        effectDef: { path: 'game.property.currentRound', value: { random: { min: 1, max: 6 } } },
+      }));
+      picks.push(session.state.gameProperties['currentRound']);
+    }
+    expect(picks).toEqual([1, 4, 6]);
   });
 
   it('is deterministic — same seed produces same result', async () => {
     const results: unknown[] = [];
     for (let i = 0; i < 2; i++) {
       const session = makeSession(999);
-      await executeSetRandom(session, makeCtx({
-        effectDef: {
-          source: { kind: 'range', min: 1, max: 100 },
-          path: 'game.property.currentRound',
-        },
+      await executeSetState(session, makeCtx({
+        effectDef: { path: 'game.property.currentRound', value: { random: { min: 1, max: 100 } } },
       }));
       results.push(session.state.gameProperties['currentRound']);
     }
     expect(results[0]).toBe(results[1]);
   });
 
-  it('writes to a player property', async () => {
-    const session = makeSession(42);
-    await executeSetRandom(session, makeCtx({
+  it('draws independently for each targeted player', async () => {
+    const session = sessionWithRolls([0, 0.99]);
+    await executeSetState(session, makeCtx({
       effectDef: {
-        source: { kind: 'range', min: 0, max: 5 },
         path: 'player.property.roundsWon',
+        value: { random: { min: 0, max: 5 } },
+        target: 'all',
       },
     }));
-    const result = session.state.players['p1'].properties['roundsWon'] as number;
-    expect(result).toBeGreaterThanOrEqual(0);
-    expect(result).toBeLessThanOrEqual(5);
+    expect(session.state.players['p1'].properties['roundsWon']).toBe(0);
+    expect(session.state.players['p2'].properties['roundsWon']).toBe(5);
+  });
+
+  it('works in a hook context (no actor) for game properties', async () => {
+    const session = sessionWithRolls([0.5]);
+    await executeSetState(session, makeCtx({
+      actorId: null,
+      effectDef: { path: 'game.property.currentRound', value: { random: { min: 1, max: 6 } } },
+    }));
+    expect(session.state.gameProperties['currentRound']).toBe(4);
+  });
+
+  it('draws independently for each updated piece', async () => {
+    const session = sessionWithRolls([0, 0.99]);
+    session.state.gamepieces['weapon-2'] = {
+      ...session.state.gamepieces['weapon-1'],
+      properties: { description: 'A small hammer', rps: 'rock', imageUrl: '' },
+    };
+    (session.state.players['p1'].inventories['forge'] as { pieceIds: string[] }).pieceIds.push('weapon-2');
+    await executeUpdate(session, makeCtx({
+      effectDef: {
+        pieces: { inventory: 'forge', select: 'all' },
+        property: 'rps',
+        value: { random: { options: [{ value: 'paper' }, { value: 'scissors' }] } },
+      },
+    }));
+    const rps = ['weapon-1', 'weapon-2'].map((id) => session.state.gamepieces[id].properties['rps']);
+    expect(rps.sort()).toEqual(['paper', 'scissors']);
   });
 });
 
@@ -1108,35 +1136,67 @@ describe('executeMessage', () => {
   it('pushes a public message to all', async () => {
     const session = makeSession();
     await executeMessage(session, makeCtx({
-      effectDef: { template: 'Round begins!' },
+      effectDef: { template: 'Round begins!', to: 'all' },
     }));
     expect(session.outbox).toHaveLength(1);
     expect(session.outbox[0]).toEqual({
-      to: 'all',
       recipients: ['p1', 'p2'],
       content: 'Round begins!',
     });
   });
 
-  it('pushes a private message to a specific player', async () => {
+  it('pushes a private message to the actor', async () => {
     const session = makeSession();
     await executeMessage(session, makeCtx({
-      effectDef: { template: 'Your secret weapon is ready.', to: 'p1' },
+      effectDef: { template: 'Your secret weapon is ready.', to: 'actor' },
     }));
     expect(session.outbox[0]).toEqual({
-      to: 'p1',
       recipients: ['p1'],
       content: 'Your secret weapon is ready.',
     });
   });
 
+  it('pushes a message to all-other', async () => {
+    const session = makeSession();
+    await executeMessage(session, makeCtx({
+      effectDef: { template: 'p1 made a move.', to: 'all-other' },
+    }));
+    expect(session.outbox[0].recipients).toEqual(['p2']);
+  });
+
+  it('pushes a message to players holding a role', async () => {
+    const session = makeSession();
+    session.state.players['p2'].roles = ['mafia'];
+    await executeMessage(session, makeCtx({
+      effectDef: { template: 'Choose a target.', to: { roles: ['mafia'] } },
+    }));
+    expect(session.outbox[0].recipients).toEqual(['p2']);
+  });
+
+  it('delivers to nobody when no player holds the role', async () => {
+    const session = makeSession();
+    await executeMessage(session, makeCtx({
+      effectDef: { template: 'Secret.', to: { roles: ['mafia'] } },
+    }));
+    expect(session.outbox[0].recipients).toEqual([]);
+  });
+
+  it('throws instead of broadcasting when to is actor and there is no actor', async () => {
+    const session = makeSession();
+    await expect(executeMessage(session, makeCtx({
+      actorId: null,
+      effectDef: { template: 'Secret.', to: 'actor' },
+    }))).rejects.toThrow('requires an actorId');
+    expect(session.outbox).toHaveLength(0);
+  });
+
   it('accumulates multiple messages', async () => {
     const session = makeSession();
     await executeMessage(session, makeCtx({
-      effectDef: { template: 'First' },
+      effectDef: { template: 'First', to: 'all' },
     }));
     await executeMessage(session, makeCtx({
-      effectDef: { template: 'Second' },
+      effectDef: { template: 'Second', to: 'all' },
     }));
     expect(session.outbox).toHaveLength(2);
   });
@@ -1411,31 +1471,32 @@ describe('executeReveal', () => {
     expect(session.state.gamepieces['weapon-1'].visibleTo).toEqual(['p1']);
   });
 
-  it('sets visibleTo to all players except actor when to is "opponents"', async () => {
+  it('sets visibleTo to all players except actor when to is "all-other"', async () => {
     const session = makeSession();
     session.state.gamepieces['weapon-1'].visibleTo = null;
     await executeReveal(session, makeCtx({
       actorId: 'p1',
-      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'opponents' },
+      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'all-other' },
     }));
     expect(session.state.gamepieces['weapon-1'].visibleTo).toEqual(['p2']);
   });
 
-  it('sets visibleTo to a specific player ID', async () => {
+  it('sets visibleTo to a player named by state', async () => {
     const session = makeSession();
+    session.state.gameProperties['roundWinner'] = 'p2';
     session.state.gamepieces['weapon-1'].visibleTo = null;
     await executeReveal(session, makeCtx({
-      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'p2' },
+      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: { stateRef: 'game.property.roundWinner' } },
     }));
     expect(session.state.gamepieces['weapon-1'].visibleTo).toEqual(['p2']);
   });
 
-  it('sets visibleTo to players matching a role when to is "role:<id>"', async () => {
+  it('sets visibleTo to players holding a role', async () => {
     const session = makeSession();
     session.state.players['p2'].roles = ['dealer'];
     session.state.gamepieces['weapon-1'].visibleTo = null;
     await executeReveal(session, makeCtx({
-      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'role:dealer' },
+      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: { roles: ['dealer'] } },
     }));
     expect(session.state.gamepieces['weapon-1'].visibleTo).toEqual(['p2']);
   });

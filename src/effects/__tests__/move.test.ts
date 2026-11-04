@@ -200,7 +200,7 @@ describe('executeMove — dynamic player targeting', () => {
       effectDef: {
         kind: 'move',
         from: {
-          player: { kind: 'stateRef', path: 'game.property.roundLoser' },
+          player: { stateRef: 'game.property.roundLoser' },
           inventory: 'hand',
           select: 'random',
           count: 1,
@@ -222,7 +222,7 @@ describe('executeMove — dynamic player targeting', () => {
       effectDef: {
         kind: 'move',
         from: { inventory: 'deck', select: 'top', count: 1 },
-        to: { player: { kind: 'param', inputId: 'target-player' }, inventory: 'hand' },
+        to: { player: { param: 'target-player' }, inventory: 'hand' },
       },
     }));
     const p2Hand = session.state.players['p2'].inventories['hand'] as any;
@@ -265,7 +265,7 @@ describe('executeMove — player targets', () => {
       actorId: null,
       effectDef: {
         kind: 'move',
-        from: { player: { kind: 'all' }, inventory: 'hand', select: 'all' },
+        from: { player: 'all', inventory: 'hand', select: 'all' },
         to: { inventory: 'discard' },
       },
     }));
@@ -281,7 +281,7 @@ describe('executeMove — player targets', () => {
       actorId: 'p1',
       effectDef: {
         kind: 'move',
-        from: { player: { kind: 'all-other' }, inventory: 'hand', select: 'all' },
+        from: { player: 'all-other', inventory: 'hand', select: 'all' },
         to: { inventory: 'discard' },
       },
     }));
@@ -311,7 +311,7 @@ describe('executeMove — player targets', () => {
       executeMove(session, makeCtx({
         effectDef: {
           kind: 'move',
-          from: { player: { kind: 'stateRef', path: 'game.property.roundLoser' }, inventory: 'hand', select: 'all' },
+          from: { player: { stateRef: 'game.property.roundLoser' }, inventory: 'hand', select: 'all' },
           to: { inventory: 'discard' },
         },
       })),

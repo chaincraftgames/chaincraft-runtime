@@ -136,7 +136,7 @@ function resolveSources(
     if (!sel.player && !ctx.actorId) {
       throw new Error(
         `Selector on player-scoped inventory "${sel.inventory}" has no player and no actor in context; ` +
-          `name the players explicitly, e.g. player: { kind: all }`,
+          `name the players explicitly, e.g. player: all`,
       );
     }
     const playerIds = resolvePlayerTarget(session, ctx, sel.player);

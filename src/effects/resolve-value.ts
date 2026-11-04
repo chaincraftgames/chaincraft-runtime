@@ -2,7 +2,7 @@
 // Effect executor: resolve-value
 //
 // Shared helper that resolves a PropertyValue (literal, delta, toggle, param,
-// actor) to a concrete value given the current property value and the effect
+// actor, var, expr, random) to a concrete value given the current property value and the effect
 // context. Used by set-state and update executors.
 // ---------------------------------------------------------------------------
 
@@ -24,6 +24,11 @@ type NumericOrVar =
   | { var: string; negate?: boolean }
   | { expr: CompiledValueFn };
 
+type RandomOption = { value: string | number | boolean; weight?: number };
+export type RandomSource =
+  | { options: RandomOption[] }
+  | { min: number; max: number };
+
 export type PropertyValue =
   | string
   | number
@@ -34,7 +39,8 @@ export type PropertyValue =
   | { param: string }
   | { actor: true }
   | { var: string }
-  | { expr: CompiledValueFn };
+  | { expr: CompiledValueFn }
+  | { random: RandomSource };
 
 /**
  * A reference to a single gamepiece, resolved from action inputs or a literal ID.
@@ -153,7 +159,33 @@ export function resolveValue(
     return (pv.expr as CompiledValueFn)(session, ctx);
   }
 
+  if ("random" in pv) {
+    return pickRandom(session, pv.random);
+  }
+
   return pv;
+}
+
+/** Draw from a RandomSource using the session RNG (all entropy must come from session.rng). */
+function pickRandom(
+  session: GameSession,
+  source: RandomSource,
+): string | number | boolean {
+  const r = session.rng.nextFloat();
+
+  if ("min" in source) {
+    return source.min + Math.floor(r * (source.max - source.min + 1));
+  }
+
+  const { options } = source;
+  const totalWeight = options.reduce((sum, o) => sum + (o.weight ?? 1), 0);
+  let cumulative = 0;
+  for (const option of options) {
+    cumulative += (option.weight ?? 1) / totalWeight;
+    if (r < cumulative) return option.value;
+  }
+  // Floating-point edge case
+  return options[options.length - 1].value;
 }
 
 /**

@@ -74,7 +74,7 @@ describe('resolveOptions — gamepiece-select fromPlayer', () => {
   it('self resolves against the actor', () => {
     const input: EngineInput = {
       id: 'attacker',
-      type: { kind: 'gamepiece-select', inventory: 'field', fromPlayer: 'self' },
+      type: { kind: 'gamepiece-select', inventory: 'field', fromPlayer: 'actor' },
     };
     expect(resolveOptions(makeExecState(), input, 'p1', {})).toEqual(['a1', 'a2']);
   });
@@ -123,7 +123,7 @@ describe("resolveOptions — number", () => {
 // Shape of board-battler's attackCreature / castFreeze inputs.
 const attackerInput: EngineInput = {
   id: 'attacker',
-  type: { kind: 'gamepiece-select', inventory: 'field', ofType: 'creature', fromPlayer: 'self' },
+  type: { kind: 'gamepiece-select', inventory: 'field', ofType: 'creature', fromPlayer: 'actor' },
 };
 const defenderOwnerInput: EngineInput = {
   id: 'defenderOwner',
@@ -206,7 +206,7 @@ describe("filters and validation read earlier answers", () => {
       type: {
         kind: "gamepiece-select",
         inventory: "field",
-        fromPlayer: "self",
+        fromPlayer: "actor",
       },
       validate: (_session, _actorId, inputs) => inputs.defender !== inputs.attacker,
       dependsOn: ["attacker"],

@@ -173,7 +173,7 @@ const playCard: ActionDef = {
         {
           id: 'card',
           label: 'Choose a card to play',
-          type: { kind: 'gamepiece-select', inventory: 'hand', ofType: 'card', fromPlayer: 'self' },
+          type: { kind: 'gamepiece-select', inventory: 'hand', ofType: 'card', fromPlayer: 'actor' },
         },
       ],
       effects: [
@@ -283,7 +283,7 @@ export function createHighCardModule(rngSeed = 42): CompiledGameModule {
         kind: 'set-state',
         path: 'player.property.score',
         value: { delta: 1 },
-        target: { kind: 'stateRef', path: 'game.property.roundWinner' },
+        target: { stateRef: 'game.property.roundWinner' },
       },
       announceTrick: {
         kind: 'message',

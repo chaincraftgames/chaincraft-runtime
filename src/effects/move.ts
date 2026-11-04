@@ -26,10 +26,9 @@ import { selectGamepieceRefs } from "#chaincraft/effects/gamepiece-selector.js";
 import type { GamepieceSelector } from "#chaincraft/effects/gamepiece-selector.js";
 import { getInventory } from "#chaincraft/inventory/index.js";
 import { resolvePlayerTarget } from "#chaincraft/effects/player-target.js";
-import type { PlayerTarget } from "#chaincraft/effects/player-target.js";
 
 type InventoryTarget = {
-  player?: Extract<PlayerTarget, { kind: "actor" | "param" | "stateRef" }>;
+  player?: "actor" | { param: string } | { stateRef: string };
   inventory: string;
   at?: InventoryPosition | { param: string };
 };
