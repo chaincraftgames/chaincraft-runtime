@@ -34,7 +34,12 @@ export type GamepieceSelector = {
   select: string | { id: string | { param: string } };
   count?: number;
   ofType?: string;
-  filter?: (session: GameSession, pieceId: string, actorId?: string) => boolean;
+  filter?: (
+    session: GameSession,
+    pieceId: string,
+    actorId?: string,
+    inputs?: Readonly<Record<string, unknown>>,
+  ) => boolean;
 };
 
 /** A selected piece together with the inventory it was selected from. */
@@ -108,7 +113,7 @@ export function selectGamepieceRefs(
 
     if (sel.filter) {
       selected = selected.filter((id) =>
-        sel.filter!(session, id, ctx.actorId ?? undefined),
+        sel.filter!(session, id, ctx.actorId ?? undefined, ctx.actionInputs),
       );
     }
 

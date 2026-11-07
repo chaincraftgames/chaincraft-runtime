@@ -49,6 +49,10 @@ export function advanceGrammarCursor(
       } else if (typeof count === "number") {
         cursor.repeatCount++;
         cursor.done = cursor.repeatCount >= count;
+      } else if ("endCondition" in count) {
+        // The predicate is evaluated by nextPlayerTurnWork once effects have run.
+        cursor.repeatCount++;
+        cursor.done = count.max !== undefined && cursor.repeatCount >= count.max;
       } else {
         // { min?, max? } range.
         if (passed) {
@@ -78,6 +82,7 @@ export interface LegalActions {
  * - For repeat with { min?, max? } range: canPass is false until repeatCount
  *   >= min, then true (the player may stop or continue up to max).
  * - For repeat with count: 'until-pass': canPass is always true.
+ * - For repeat with { endCondition, max? }: canPass is always false.
  * - For choice with passable: true: canPass is true.
  *
  * Structural only — precondition filtering against game state is the
@@ -101,6 +106,9 @@ export function resolveLegalActions(
         return { actions: body.actions, canPass: true };
       }
       if (typeof grammar.count === "number") {
+        return { actions: body.actions, canPass: false };
+      }
+      if ("endCondition" in grammar.count) {
         return { actions: body.actions, canPass: false };
       }
       // { min?, max? } range.

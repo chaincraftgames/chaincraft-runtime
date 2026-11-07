@@ -579,13 +579,20 @@ export type SequenceGrammar = {
  * - 'until-pass': repeat until the player elects to pass. Pass is always legal;
  *   again the body does not need to be passable.
  *   In a simultaneous node, the phase exits when ALL actors have passed.
+ * - { endCondition, max? }: repeat until endCondition returns true (checked after each iteration's
+ *   effects, actor bound) or max iterations are done. The body always runs once; pass is
+ *   never legal. Only evaluated on the top-level grammar of a turn.
  */
 export type RepeatGrammar = {
   kind: "repeat";
   /** Inner grammar to repeat each iteration. */
   body: Grammar;
-  /** Repeat exactly N times, up to a range, or until player passes. */
-  count: number | { min?: number; max?: number } | "until-pass";
+  /** Repeat exactly N times, up to a range, until a rule holds, or until player passes. */
+  count:
+    | number
+    | { min?: number; max?: number }
+    | { endCondition: Predicate; max?: number }
+    | "until-pass";
 };
 
 // ---------------------------------------------------------------------------

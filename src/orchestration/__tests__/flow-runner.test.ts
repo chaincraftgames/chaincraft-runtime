@@ -21,12 +21,12 @@ import type {
   FlowAdvanceResult,
   PlayerInputSuspension,
   EffectQueueItem,
-  QueueItem,
-  GameExecutionDeps,
-} from '../types.js';
-import { createFlowRunner } from '../flow-runner.js';
+  QueueItem
+} from '#chaincraft/orchestration/types.js';
+import { createFlowRunner } from '#chaincraft/orchestration/flow-runner.js';
 import { nextPlayerTurnWork, type PlayerTurnSignal } from '../player-effects-resolver.js';
-import { step } from '../game-step.js';
+import { advanceGrammarCursor } from '#chaincraft/orchestration/grammar.js';
+import { GameController } from '#chaincraft/api/game-controller.js';
 import { createSeededRng } from '#chaincraft/rng/seeded.js';
 import { GameEventEmitter } from '#chaincraft/events/emitter.js';
 
@@ -670,6 +670,137 @@ describe('nextRunnerWork', () => {
     const items = expectWorkEnqueue(nextPlayerTurnWork('p1', cursor, grammar, state, module));
     expect((items[0] as EffectQueueItem).effect).toEqual({ kind: 'log', tag: 'act-a' });
     expect(cursor.done).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// repeat with { endCondition, max? } — the predicate is checked in nextPlayerTurnWork,
+// i.e. after the previous action's effects have run.
+// ---------------------------------------------------------------------------
+
+describe('nextPlayerTurnWork: repeat until', () => {
+  const ACTIONS = ['act-a', 'act-b'];
+  const module = makeModule({ kind: 'game', id: 'root', children: [] }, ACTIONS);
+
+  function untilGrammar(endCondition: () => boolean, max?: number): Grammar {
+    return {
+      kind: 'repeat',
+      body: { kind: 'choice', actions: ACTIONS },
+      count: max === undefined ? { endCondition } : { endCondition, max },
+    };
+  }
+
+  /** Simulates the player picking an action: the cursor advances before the effects run. */
+  function act(cursor: { sequenceIndex: number; repeatCount: number; done: boolean }, grammar: Grammar) {
+    advanceGrammarCursor(cursor, grammar, false, 'act-a');
+  }
+
+  it('until false after an action: prompts again (pass is never offered)', () => {
+    const state = createGameExecutionState();
+    const grammar = untilGrammar(() => false);
+    const cursor = { sequenceIndex: 0, repeatCount: 0, done: false };
+
+    for (let i = 0; i < 3; i++) {
+      const susp = expectWorkSuspend(nextPlayerTurnWork('p1', cursor, grammar, state, module));
+      expect((susp.input.type as { canPass: boolean }).canPass).toBe(false);
+      act(cursor, grammar);
+    }
+    expect(cursor.done).toBe(false);
+  });
+
+  it('until true after an action: done', () => {
+    const state = createGameExecutionState();
+    let finished = false;
+    const grammar = untilGrammar(() => finished);
+    const cursor = { sequenceIndex: 0, repeatCount: 0, done: false };
+
+    expectWorkSuspend(nextPlayerTurnWork('p1', cursor, grammar, state, module));
+    act(cursor, grammar);
+    finished = true;
+
+    expect(nextPlayerTurnWork('p1', cursor, grammar, state, module).kind).toBe('done');
+    expect(cursor.done).toBe(true);
+  });
+
+  it('until already true before the first action: the body still runs once', () => {
+    const state = createGameExecutionState();
+    const grammar = untilGrammar(() => true);
+    const cursor = { sequenceIndex: 0, repeatCount: 0, done: false };
+
+    expectWorkSuspend(nextPlayerTurnWork('p1', cursor, grammar, state, module));
+    act(cursor, grammar);
+    expect(nextPlayerTurnWork('p1', cursor, grammar, state, module).kind).toBe('done');
+  });
+
+  it('max reached with until false: done', () => {
+    const state = createGameExecutionState();
+    const grammar = untilGrammar(() => false, 2);
+    const cursor = { sequenceIndex: 0, repeatCount: 0, done: false };
+
+    expectWorkSuspend(nextPlayerTurnWork('p1', cursor, grammar, state, module));
+    act(cursor, grammar);
+    expectWorkSuspend(nextPlayerTurnWork('p1', cursor, grammar, state, module));
+    act(cursor, grammar);
+
+    expect(nextPlayerTurnWork('p1', cursor, grammar, state, module).kind).toBe('done');
+  });
+
+  it('binds the acting player to the predicate', () => {
+    const state = createGameExecutionState();
+    const seen: (string | undefined)[] = [];
+    const grammar: Grammar = {
+      kind: 'repeat',
+      body: { kind: 'choice', actions: ACTIONS },
+      count: { endCondition: (_s, actorId) => { seen.push(actorId); return true; } },
+    };
+    const cursor = { sequenceIndex: 0, repeatCount: 1, done: false };
+
+    nextPlayerTurnWork('p2', cursor, grammar, state, module);
+    expect(seen).toEqual(['p2']);
+  });
+
+  it('an action whose effect makes until true ends the turn (evaluated post-effect)', async () => {
+    const flow: FlowNode = {
+      kind: 'turn',
+      id: 'root',
+      label: 'bump twice',
+      ordering: { kind: 'round-robin' },
+      grammar: {
+        kind: 'repeat',
+        body: { kind: 'choice', actions: ['act-a', 'act-b'] },
+        count: { endCondition: (session) => Number(session.state.gameProperties['n'] ?? 0) >= 2 },
+      },
+    };
+    const base = makeModule(flow, ['act-a', 'act-b']);
+    const bumpModule: CompiledGameModule = {
+      ...base,
+      actions: {
+        ...base.actions,
+        'act-a': { ...base.actions['act-a'], segments: [{ inputs: [], effects: [{ kind: 'bump' }] }] },
+      },
+      effects: {
+        ...base.effects,
+        bump: {
+          kind: 'effect-executor',
+          execute: async (session) => {
+            session.state.gameProperties['n'] = Number(session.state.gameProperties['n'] ?? 0) + 1;
+          },
+        },
+      },
+    };
+    const controller = new GameController(bumpModule);
+    await controller.init('until-game', ['p1', 'p2']);
+    const actA = (playerId: string) =>
+      controller.processAction({ playerId, value: { kind: 'act', actionId: 'act-a' } });
+
+    expect(controller.currentPrompt?.awaiting).toBe('p1');
+    await actA('p1');
+    expect(controller.getState().gameProperties['n']).toBe(1);
+    expect(controller.currentPrompt?.awaiting).toBe('p1'); // until still false
+
+    await actA('p1');
+    expect(controller.getState().gameProperties['n']).toBe(2);
+    expect(controller.currentPrompt?.awaiting).toBe('p2'); // until true: seat 2's turn
   });
 });
 

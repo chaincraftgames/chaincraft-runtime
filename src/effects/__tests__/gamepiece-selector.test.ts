@@ -83,3 +83,24 @@ describe('selectGamepieces — player targeting', () => {
     expect(ids).toEqual(['d-pool']);
   });
 });
+
+describe('selectGamepieces — filter', () => {
+  it('passes the actor and the action inputs to the filter', () => {
+    const calls: unknown[][] = [];
+    const ids = selectGamepieces(
+      makeSession(),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { actorId: 'p1', actionInputs: { pick: 'd2' }, effectDef: {} } as EffectContext<any>,
+      {
+        inventory: 'cup',
+        select: 'all',
+        filter: (_s, pieceId, actorId, inputs) => {
+          calls.push([actorId, inputs]);
+          return pieceId === inputs?.pick;
+        },
+      },
+    );
+    expect(ids).toEqual(['d2']);
+    expect(calls).toEqual([['p1', { pick: 'd2' }], ['p1', { pick: 'd2' }]]);
+  });
+});

@@ -51,6 +51,18 @@ export function nextPlayerTurnWork(
 ): PlayerTurnSignal {
   if (cursor.done) return { kind: "done" };
 
+  // Runs when the queue is empty, so state already reflects the previous action's effects.
+  if (
+    grammar.kind === "repeat" &&
+    typeof grammar.count === "object" &&
+    "endCondition" in grammar.count &&
+    cursor.repeatCount > 0 &&
+    grammar.count.endCondition(_state.session, playerId)
+  ) {
+    cursor.done = true;
+    return { kind: "done" };
+  }
+
   const { actions: structuralActions, canPass } = resolveLegalActions(grammar, cursor);
 
   // Offer only actions whose precondition holds and whose inputs can all be answered.

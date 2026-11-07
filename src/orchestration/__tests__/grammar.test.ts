@@ -82,6 +82,18 @@ describe('resolveLegalActions', () => {
     });
   });
 
+  describe('repeat — until', () => {
+    it('returns body actions with canPass=false regardless of repeatCount', () => {
+      const g: Grammar = {
+        kind: 'repeat',
+        body: { kind: 'choice', actions: ['ask', 'draw'], passable: true },
+        count: { endCondition: () => false },
+      };
+      expect(resolveLegalActions(g, cursor(0, 0))).toEqual({ actions: ['ask', 'draw'], canPass: false });
+      expect(resolveLegalActions(g, cursor(0, 4))).toEqual({ actions: ['ask', 'draw'], canPass: false });
+    });
+  });
+
   describe('repeat — range', () => {
     it('canPass=false below min', () => {
       const g: Grammar = {
@@ -202,6 +214,51 @@ describe('advanceGrammarCursor', () => {
       advanceGrammarCursor(c, g, true); // pass
       expect(c.done).toBe(true);
       expect(c.repeatCount).toBe(2); // not incremented on pass
+    });
+  });
+
+  describe('repeat — until', () => {
+    it('increments repeatCount and is never done without max', () => {
+      const g: Grammar = {
+        kind: 'repeat',
+        body: { kind: 'action', ref: 'ask' },
+        count: { endCondition: () => false },
+      };
+      const c = cursor();
+
+      for (let i = 1; i <= 5; i++) {
+        advanceGrammarCursor(c, g, false, 'ask');
+        expect(c.repeatCount).toBe(i);
+        expect(c.done).toBe(false);
+      }
+    });
+
+    it('marks done at max', () => {
+      const g: Grammar = {
+        kind: 'repeat',
+        body: { kind: 'action', ref: 'ask' },
+        count: { endCondition: () => false, max: 2 },
+      };
+      const c = cursor();
+
+      advanceGrammarCursor(c, g, false, 'ask');
+      expect(c.repeatCount).toBe(1);
+      expect(c.done).toBe(false);
+
+      advanceGrammarCursor(c, g, false, 'ask');
+      expect(c.repeatCount).toBe(2);
+      expect(c.done).toBe(true);
+    });
+
+    it('does not evaluate the predicate (state is pre-effects at this point)', () => {
+      let calls = 0;
+      const endCondition = () => { calls++; return true; };
+      const g: Grammar = { kind: 'repeat', body: { kind: 'action', ref: 'ask' }, count: { endCondition } };
+      const c = cursor();
+
+      advanceGrammarCursor(c, g, false, 'ask');
+      expect(calls).toBe(0);
+      expect(c.done).toBe(false);
     });
   });
 
