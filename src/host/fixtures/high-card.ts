@@ -225,14 +225,14 @@ export function createHighCardModule(rngSeed = 42): CompiledGameModule {
   return {
     specId: 'high-card',
     metadata: { name: 'High Card', playerCount: { min: 2, max: 2 } },
-    createSession: (gameId, players): GameSession => ({
+    createSession: (gameId, players, options): GameSession => ({
       gameId,
       specId: 'high-card',
       config,
       state: initialState(players),
       players,
       outbox: [],
-      rng: createSeededRng(rngSeed),
+      rng: createSeededRng(options?.seed ?? rngSeed),
       events: new GameEventEmitter(),
       _inventoryCache: new Map(),
     }),

@@ -6,6 +6,7 @@ import type {
 } from "#chaincraft/types.js";
 import type { Inventory } from "#chaincraft/inventory/Inventory.js";
 import { pickRandom } from "#chaincraft/inventory/utils.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
 
 export function cellKey(row: string | number, col: string | number): string {
   return `${row}:${col}`;
@@ -29,7 +30,7 @@ export class GridInventory implements Inventory {
         // No meaningful top/bottom on a grid — return first N occupied
         return occupied.slice(0, count);
       case "random":
-        if (!rng) throw new Error("RNG required for random selection");
+        if (!rng) throw new GameRuntimeError("rng-missing", "RNG required for random selection");
         return pickRandom(occupied, count, rng);
     }
   }
@@ -46,15 +47,15 @@ export class GridInventory implements Inventory {
     if (placement?.kind === "grid-cell") {
       const key = cellKey(placement.row, placement.col);
       if (!(key in this.data.cells))
-        throw new Error(`grid-cell ${key} out of bounds`);
+        throw new GameRuntimeError("inventory-no-room", `grid-cell ${key} out of bounds`);
       if (this.data.cells[key] !== null)
-        throw new Error(`grid-cell ${key} is already occupied`);
+        throw new GameRuntimeError("inventory-no-room", `grid-cell ${key} is already occupied`);
       this.data.cells[key] = pieceId;
     } else {
       const emptyKey = Object.keys(this.data.cells).find(
         (k) => this.data.cells[k] === null,
       );
-      if (!emptyKey) throw new Error("grid inventory is full");
+      if (!emptyKey) throw new GameRuntimeError("inventory-no-room", "grid inventory is full");
       this.data.cells[emptyKey] = pieceId;
     }
   }
@@ -72,7 +73,7 @@ export class GridInventory implements Inventory {
     const key = Object.keys(this.data.cells).find(
       (k) => this.data.cells[k] === pieceId,
     );
-    if (!key) throw new Error(`Piece ${pieceId} not found in grid inventory`);
+    if (!key) throw new GameRuntimeError("piece-not-in-inventory", `Piece ${pieceId} not found in grid inventory`);
     this.data.cells[key] = null;
   }
 

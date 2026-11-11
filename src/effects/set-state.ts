@@ -26,6 +26,7 @@ import type {
 import { resolvePlayerTarget } from "#chaincraft/effects/player-target.js";
 import type { PlayerTarget } from "#chaincraft/effects/player-target.js";
 import { StateWriteEvent } from "#chaincraft/effects/effect-bus.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
 
 type SetStateEffectDef = {
   path: string;
@@ -48,21 +49,24 @@ function validateRefValue(
   switch (config.refType) {
     case "player-id":
       if (!session.state.players[value]) {
-        throw new Error(
+        throw new GameRuntimeError(
+          "set-state-invalid-ref",
           `set-state "${path}": "${value}" is not a valid player ID (known: ${Object.keys(session.state.players).join(", ")})`,
         );
       }
       break;
     case "player-role-id":
       if (session.config.roles && !session.config.roles.includes(value)) {
-        throw new Error(
+        throw new GameRuntimeError(
+          "set-state-invalid-ref",
           `set-state "${path}": "${value}" is not a valid player role ID (known: ${session.config.roles.join(", ")})`,
         );
       }
       break;
     case "gamepiece-id":
       if (!session.state.gamepieces[value]) {
-        throw new Error(
+        throw new GameRuntimeError(
+          "set-state-invalid-ref",
           `set-state "${path}": "${value}" is not a valid gamepiece ID`,
         );
       }
@@ -108,7 +112,7 @@ export async function executeSetState(
     for (const playerId of playerIds) {
       const player = session.state.players[playerId];
       if (!player) {
-        throw new Error(`Player "${playerId}" not found in session`);
+        throw new GameRuntimeError("player-not-found", `Player "${playerId}" not found in session`);
       }
       const config = session.config.playerProperties[key];
       const current = player.properties[key];
@@ -189,7 +193,8 @@ export async function executeSetState(
       }
     }
   } else {
-    throw new Error(
+    throw new GameRuntimeError(
+      "set-state-invalid-path",
       `Invalid set-state path: "${path}". Expected game.property.<id> or player.property.<id>`,
     );
   }

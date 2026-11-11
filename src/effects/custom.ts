@@ -7,6 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import type { GameSession, EffectContext, EffectExecutor } from '#chaincraft/types.js';
+import { GameRuntimeError } from '#chaincraft/errors.js';
 
 /**
  * A custom effect handler — same signature as a plain EffectExecutor.
@@ -37,7 +38,7 @@ export function createCustomExecutor(handlers: CustomHandlerMap): EffectExecutor
       const { id } = ctx.effectDef as CustomEffectDef;
       const handler = handlers[id];
       if (!handler) {
-        throw new Error(`No custom handler registered for effect "${id}"`);
+        throw new GameRuntimeError('no-custom-handler', `No custom handler registered for effect "${id}"`);
       }
       await handler(session, ctx);
     },

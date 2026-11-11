@@ -6,6 +6,7 @@ import type {
 } from "#chaincraft/types.js";
 import type { Inventory } from "#chaincraft/inventory/Inventory.js";
 import { pickRandom, fisherYatesShuffle } from "#chaincraft/inventory/utils.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
 
 export class LineInventory implements Inventory {
   readonly structure = "line" as const;
@@ -25,7 +26,7 @@ export class LineInventory implements Inventory {
       case "bottom":
         return occupied.slice(-count);
       case "random":
-        if (!rng) throw new Error("RNG required for random selection");
+        if (!rng) throw new GameRuntimeError("rng-missing", "RNG required for random selection");
         return pickRandom(occupied, count, rng);
     }
   }
@@ -41,7 +42,8 @@ export class LineInventory implements Inventory {
   add(pieceId: string, placement?: InventoryPosition): void {
     if (placement?.kind === "line-index") {
       if (this.data.length !== undefined && placement.index >= this.data.length)
-        throw new Error(
+        throw new GameRuntimeError(
+          "inventory-no-room",
           `line-index ${placement.index} out of bounds (length ${this.data.length})`,
         );
       while (this.data.slots.length <= placement.index) {
@@ -53,7 +55,7 @@ export class LineInventory implements Inventory {
       if (emptyIdx !== -1) {
         this.data.slots[emptyIdx] = pieceId;
       } else if (this.data.length !== undefined) {
-        throw new Error(`line inventory is full (length ${this.data.length})`);
+        throw new GameRuntimeError("inventory-no-room", `line inventory is full (length ${this.data.length})`);
       } else {
         this.data.slots.push(pieceId);
       }
@@ -68,7 +70,7 @@ export class LineInventory implements Inventory {
   remove(pieceId: string): void {
     const idx = this.data.slots.indexOf(pieceId);
     if (idx === -1)
-      throw new Error(`Piece ${pieceId} not found in line inventory`);
+      throw new GameRuntimeError("piece-not-in-inventory", `Piece ${pieceId} not found in line inventory`);
     this.data.slots[idx] = null;
   }
 

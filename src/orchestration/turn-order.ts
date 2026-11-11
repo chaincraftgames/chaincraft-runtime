@@ -27,6 +27,7 @@ import type {
   PlayerSelector,
 } from "#chaincraft/types.js";
 import { isEliminated } from "#chaincraft/state/elimination.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
 import type {
   GameExecutionState,
   PlayerTurnCursor,
@@ -72,7 +73,8 @@ export function resolveNextEligibleActors(
     case "custom":
       // TODO: look up ordering.resolverId in module.turnOrderResolvers and
       // invoke it with (state, cursors).
-      throw new Error(
+      throw new GameRuntimeError(
+        "turn-order-unsupported",
         `Custom turn ordering "${ordering.resolverId}" not yet implemented`,
       );
   }
@@ -92,7 +94,7 @@ export function readStatePath(session: GameSession, path: string): unknown {
   if (parts[0] === "game" && parts[1] === "property" && parts.length === 3) {
     return session.state.gameProperties[parts[2]];
   }
-  throw new Error(`readStatePath: unsupported path format "${path}"`);
+  throw new GameRuntimeError("state-path-unsupported", `readStatePath: unsupported path format "${path}"`);
 }
 
 /** Writes a value to the given dot-path within the session state. */
@@ -106,7 +108,7 @@ export function writeStatePath(
     (session.state.gameProperties as Record<string, unknown>)[parts[2]] = value;
     return;
   }
-  throw new Error(`writeStatePath: unsupported path format "${path}"`);
+  throw new GameRuntimeError("state-path-unsupported", `writeStatePath: unsupported path format "${path}"`);
 }
 
 /** Starting player for a turn node, read once on entry; null when no player is eligible. */
@@ -141,7 +143,8 @@ function selectAnchor(
   const v = readStatePath(session, sel.path);
   if (v === "" || v == null) return null;
   if (typeof v !== "string" || !session.players.includes(v)) {
-    throw new Error(
+    throw new GameRuntimeError(
+      "player-selector-invalid",
       `Player selector "${sel.path}" = ${JSON.stringify(v)} is not a player in this session`,
     );
   }

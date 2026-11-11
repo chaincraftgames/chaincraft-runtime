@@ -376,6 +376,8 @@ export type GameExecutionDeps = {
   module: CompiledGameModule;
   advanceFlow: AdvanceFlow;
   resolveOptions: OptionsResolver;
+  /** Max queue items drained plus flow advances per step() call. Default 10000. */
+  maxStepWork?: number;
 };
 
 // ---------------------------------------------------------------------------

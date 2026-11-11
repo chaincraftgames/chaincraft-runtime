@@ -23,6 +23,7 @@ import {
 } from "#chaincraft/orchestration/grammar.js";
 import { hasCompletion } from "#chaincraft/orchestration/input-completion.js";
 import { resolveOptions as defaultResolveOptions } from "#chaincraft/orchestration/options.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
 
 /** What a player runner should do next at its current cursor position. */
 export type PlayerTurnSignal =
@@ -44,7 +45,7 @@ export function nextPlayerTurnWork(
   playerId: string,
   cursor: PlayerTurnCursor,
   grammar: Grammar,
-  _state: GameExecutionState,
+  state: GameExecutionState,
   module: CompiledGameModule,
   nodeLabel?: string,
   resolveOptions: OptionsResolver = defaultResolveOptions,
@@ -57,7 +58,7 @@ export function nextPlayerTurnWork(
     typeof grammar.count === "object" &&
     "endCondition" in grammar.count &&
     cursor.repeatCount > 0 &&
-    grammar.count.endCondition(_state.session, playerId)
+    grammar.count.endCondition(state.session, playerId)
   ) {
     cursor.done = true;
     return { kind: "done" };
@@ -68,9 +69,9 @@ export function nextPlayerTurnWork(
   // Offer only actions whose precondition holds and whose inputs can all be answered.
   const actions = structuralActions.filter((id) => {
     const def = module.actions[id];
-    if (def?.precondition && !def.precondition(_state.session, playerId)) return false;
+    if (def?.precondition && !def.precondition(state.session, playerId)) return false;
     return !def || hasCompletion(
-      _state, 
+      state, 
       def.segments[0]?.inputs ?? [], 
       playerId, 
       {}, 
@@ -79,7 +80,8 @@ export function nextPlayerTurnWork(
   });
 
   if (actions.length === 0 && !canPass) {
-    throw new Error(
+    throw new GameRuntimeError(
+      "no-legal-actions",
       `Player "${playerId}" has no legal actions at node "${nodeLabel ?? "unknown"}" — check spec preconditions`,
     );
   }
@@ -89,6 +91,7 @@ export function nextPlayerTurnWork(
     const actionId = actions[0];
     const items = explodeAction(actionId, playerId, module);
     advanceGrammarCursor(cursor, grammar, false, actionId);
+    state.session.events.emit({ kind: "action:start", playerId, actionId, auto: true });
     return { kind: "enqueue", items };
   }
 
@@ -120,7 +123,7 @@ export function explodeAction(
 ): QueueItem[] {
   const items: QueueItem[] = [];
   const action = module.actions[actionId];
-  if (!action) throw new Error(`Action "${actionId}" not found in module`);
+  if (!action) throw new GameRuntimeError("action-unknown", `Action "${actionId}" not found in module`);
   const group: QueueGroup = { actorId, actionId, collected: {} };
   for (const [segmentIndex, segment] of action.segments.entries()) {
     for (const input of segment.inputs) {

@@ -18,6 +18,7 @@ import type {
   InputOption,
 } from "#chaincraft/orchestration/types.js";
 import { getInventory } from "#chaincraft/inventory/index.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
 
 /** Largest whole-number range listed as options; wider ranges are value-checked only. */
 export const MAX_NUMBER_OPTIONS = 32;
@@ -33,7 +34,7 @@ export function resolveOptions(
   if (options === undefined || !("validate" in input) || !input.validate) return options;
   const validate = input.validate;
   if (!actorId) {
-    throw new Error(`Input "${input.id}" has validation but no actor to evaluate it for`);
+    throw new GameRuntimeError("validation-no-actor", `Input "${input.id}" has validation but no actor to evaluate it for`);
   }
   return options.filter((value) =>
     validate(state.session, actorId, { ...collected, [input.id]: value }),
@@ -109,7 +110,8 @@ function resolveGamepieceOptions(
       const paramId = type.fromPlayer.param;
       const owner = collected?.[paramId];
       if (typeof owner !== "string" || !session.players.includes(owner)) {
-        throw new Error(
+        throw new GameRuntimeError(
+          "from-player-invalid",
           `gamepiece-select fromPlayer param "${paramId}" does not resolve to a player ` +
             `(got ${JSON.stringify(owner)}); it must reference an earlier player-select input`,
         );

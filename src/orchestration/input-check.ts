@@ -13,6 +13,7 @@ import type {
   QueueGroup,
 } from "#chaincraft/orchestration/types.js";
 import { pruneDeadEnds } from "#chaincraft/orchestration/input-completion.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
 
 /** Sentinel: the input is answered by a player, not filled in by the engine. */
 export const NO_AUTO_VALUE = Symbol("no-auto-value");
@@ -23,7 +24,7 @@ export function autoInputValue(input: EngineInput, group: QueueGroup): unknown {
 
   if (type.kind === "effect-originator") {
     if (!group.originatorId) {
-      throw new Error(`Input "${input.id}" is effect-originator but group has no originatorId`);
+      throw new GameRuntimeError("auto-input-unavailable", `Input "${input.id}" is effect-originator but group has no originatorId`);
     }
     return group.originatorId;
   }
@@ -31,7 +32,7 @@ export function autoInputValue(input: EngineInput, group: QueueGroup): unknown {
   if (type.kind === "trigger-input") {
     const inputId = type.inputId;
     if (!inputId || !group.triggerInputs || !(inputId in group.triggerInputs)) {
-      throw new Error(`Input "${input.id}" references trigger input "${inputId}" not available`);
+      throw new GameRuntimeError("auto-input-unavailable", `Input "${input.id}" references trigger input "${inputId}" not available`);
     }
     return group.triggerInputs[inputId];
   }

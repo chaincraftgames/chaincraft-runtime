@@ -39,6 +39,7 @@ import {
   writeStatePath,
 } from "#chaincraft/orchestration/turn-order.js";
 import { evaluateWinConditions } from "#chaincraft/orchestration/win-conditions.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
 
 // ---------------------------------------------------------------------------
 // Per-node frame state schemas.
@@ -135,7 +136,7 @@ function resumeTop(
 
   const frame = state.flowStack[state.flowStack.length - 1];
   const node = nodesByIdMap.get(frame.nodeId);
-  if (!node) throw new Error(`Flow node "${frame.nodeId}" not found in module`);
+  if (!node) throw new GameRuntimeError("flow-node-missing", `Flow node "${frame.nodeId}" not found in module`);
 
   switch (node.kind) {
     case "game":
@@ -384,7 +385,7 @@ function advanceTurn(
     return resumeTop(state, module, nodeIndex);
   }
 
-  throw new Error(`Turn node "${node.id}": unexpected phase "${ls.phase}"`);
+  throw new GameRuntimeError("flow-phase-invalid", `Turn node "${node.id}": unexpected phase "${ls.phase}"`);
 }
 
 /**

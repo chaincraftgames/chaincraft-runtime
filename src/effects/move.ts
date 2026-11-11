@@ -26,6 +26,7 @@ import { selectGamepieceRefs } from "#chaincraft/effects/gamepiece-selector.js";
 import type { GamepieceSelector } from "#chaincraft/effects/gamepiece-selector.js";
 import { getInventory } from "#chaincraft/inventory/index.js";
 import { resolvePlayerTarget } from "#chaincraft/effects/player-target.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
 
 type InventoryTarget = {
   player?: "actor" | { param: string } | { stateRef: string };
@@ -71,7 +72,8 @@ export async function executeMove(
   let resolvedToPlayerId: string | undefined;
   if (toScope === "player") {
     if (!to.player && !ctx.actorId) {
-      throw new Error(
+      throw new GameRuntimeError(
+        "move-destination-no-player",
         `Move destination "${toInventoryId}" is player-scoped but has no player and no actor in context; ` +
           `name the destination player explicitly`,
       );
@@ -85,7 +87,8 @@ export async function executeMove(
   );
 
   if (!destInv) {
-    throw new Error(
+    throw new GameRuntimeError(
+      "move-destination-missing",
       `Destination inventory "${toInventoryId}"` +
         (resolvedToPlayerId ? ` for player "${resolvedToPlayerId}"` : "") +
         " not found in session state",

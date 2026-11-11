@@ -6,6 +6,7 @@ import type {
 } from '#chaincraft/types.js';
 import type { Inventory } from '#chaincraft/inventory/Inventory.js';
 import { pickRandom } from '#chaincraft/inventory/utils.js';
+import { GameRuntimeError } from '#chaincraft/errors.js';
 
 export class GraphInventory implements Inventory {
   readonly structure = 'graph' as const;
@@ -25,7 +26,7 @@ export class GraphInventory implements Inventory {
         // No meaningful top/bottom on a graph — return first N occupied
         return occupied.slice(0, count);
       case 'random':
-        if (!rng) throw new Error('RNG required for random selection');
+        if (!rng) throw new GameRuntimeError('rng-missing', 'RNG required for random selection');
         return pickRandom(occupied, count, rng);
     }
   }
@@ -57,7 +58,7 @@ export class GraphInventory implements Inventory {
 
   remove(pieceId: string): void {
     const nodeId = Object.keys(this.data.nodes).find(k => this.data.nodes[k] === pieceId);
-    if (!nodeId) throw new Error(`Piece ${pieceId} not found in graph inventory`);
+    if (!nodeId) throw new GameRuntimeError('piece-not-in-inventory', `Piece ${pieceId} not found in graph inventory`);
     this.data.nodes[nodeId] = null;
   }
 

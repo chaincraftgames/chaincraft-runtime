@@ -17,6 +17,7 @@ import type {
   DominantGamepieceRule,
 } from "./types.js";
 import { rankBy } from "#chaincraft/utils/ranking.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
 
 /**
  * Rank pieces within a tie-group using one rule. Returns an array of ranks
@@ -28,20 +29,23 @@ function rankByRule(
   session: GameSession,
 ): number[] {
   if (rule.kind === "dominant") {
-    throw new Error(
+    throw new GameRuntimeError(
+      "mechanic-rule-unsupported",
       `dominant-gamepiece: rule kind 'dominant' is not yet supported (Phase 6). ` +
         `Mechanic was: evaluationInventory=${(session as unknown as { _mechanic?: string })._mechanic ?? "?"}`,
     );
   }
   if (rule.kind === "matrix") {
-    throw new Error(
+    throw new GameRuntimeError(
+      "mechanic-rule-unsupported",
       `dominant-gamepiece: rule kind 'matrix' is not yet supported (Phase 6).`,
     );
   }
 
   // comparison
   if (rule.order) {
-    throw new Error(
+    throw new GameRuntimeError(
+      "mechanic-rule-unsupported",
       `dominant-gamepiece: explicit 'order' arrays in comparison rules are not yet supported (Phase 6).`,
     );
   }
@@ -67,7 +71,8 @@ export function createDominantGamepieceResolver(
     execute: async (session: GameSession): Promise<void> => {
       const inv = session.state.gameInventories[mechanic.evaluationInventory];
       if (!inv) {
-        throw new Error(
+        throw new GameRuntimeError(
+          "evaluation-inventory-missing",
           `dominant-gamepiece: evaluation inventory '${mechanic.evaluationInventory}' not found`,
         );
       }

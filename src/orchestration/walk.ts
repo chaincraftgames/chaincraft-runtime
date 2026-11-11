@@ -24,6 +24,7 @@ import {
   isPlayerAnswered,
 } from "#chaincraft/orchestration/input-check.js";
 import type { Rejection } from "#chaincraft/orchestration/input-check.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
 
 /** The prompt that would follow the walked answers. */
 export interface NextInput {
@@ -57,7 +58,7 @@ export function walkResponses(
   const playerTurn = state.playerTurns?.[playerId];
   const pending = playerTurn?.pending;
   if (!playerTurn || pending?.suspension.kind !== "player-input") {
-    throw new Error(`Player "${playerId}" has no pending prompt`);
+    throw new GameRuntimeError("no-pending-prompt", `Player "${playerId}" has no pending prompt`);
   }
   if (responses.length === 0) {
     return { kind: "illegal", index: 0, reason: "no responses submitted" };

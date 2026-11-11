@@ -8,6 +8,7 @@
 
 import type { GameSession, EffectContext } from '#chaincraft/types.js';
 import { resolveStateVar } from './resolve-value.js';
+import { GameRuntimeError } from '#chaincraft/errors.js';
 
 // ---------------------------------------------------------------------------
 // PlayerTarget types (mirrors gamedef PlayerTargetSchema; `where` is compiled)
@@ -40,7 +41,7 @@ export function resolvePlayerTarget(
   // Default: acting player
   if (target === undefined || target === 'actor') {
     if (!ctx.actorId) {
-      throw new Error('Player target "actor" requires an actorId in the effect context');
+      throw new GameRuntimeError('player-target-no-actor', 'Player target "actor" requires an actorId in the effect context');
     }
     return [ctx.actorId];
   }
@@ -51,7 +52,7 @@ export function resolvePlayerTarget(
 
   if (target === 'all-other') {
     if (!ctx.actorId) {
-      throw new Error('Player target "all-other" requires an actorId in the effect context');
+      throw new GameRuntimeError('player-target-no-actor', 'Player target "all-other" requires an actorId in the effect context');
     }
     return session.players.filter((id) => id !== ctx.actorId);
   }
@@ -59,12 +60,13 @@ export function resolvePlayerTarget(
   if (typeof target === 'object' && 'param' in target) {
     const playerId = ctx.actionInputs[target.param];
     if (typeof playerId !== 'string') {
-      throw new Error(
+      throw new GameRuntimeError(
+        'player-target-param-invalid',
         `Player target param "${target.param}" resolved to ${typeof playerId}, expected string player ID`,
       );
     }
     if (!session.state.players[playerId]) {
-      throw new Error(`Player target param "${target.param}" resolved to unknown player "${playerId}"`);
+      throw new GameRuntimeError('player-target-param-invalid', `Player target param "${target.param}" resolved to unknown player "${playerId}"`);
     }
     return [playerId];
   }
@@ -72,16 +74,17 @@ export function resolvePlayerTarget(
   if (typeof target === 'object' && 'stateRef' in target) {
     const path = target.stateRef;
     if (!path.startsWith('game.property.') && !path.startsWith('player.property.')) {
-      throw new Error(`Player target stateRef path "${path}" must be game.property.<id> or player.property.<id>`);
+      throw new GameRuntimeError('player-target-stateref-path', `Player target stateRef path "${path}" must be game.property.<id> or player.property.<id>`);
     }
     const playerId = resolveStateVar(session, ctx, path);
     if (typeof playerId !== 'string') {
-      throw new Error(
+      throw new GameRuntimeError(
+        'player-target-stateref-invalid',
         `Player target stateRef "${path}" resolved to ${typeof playerId}, expected string player ID`,
       );
     }
     if (!session.state.players[playerId]) {
-      throw new Error(`Player target stateRef "${path}" resolved to unknown player "${playerId}"`);
+      throw new GameRuntimeError('player-target-stateref-invalid', `Player target stateRef "${path}" resolved to unknown player "${playerId}"`);
     }
     return [playerId];
   }
@@ -98,7 +101,7 @@ export function resolvePlayerTarget(
     );
   }
 
-  throw new Error(`Unknown player target: ${JSON.stringify(target)}`);
+  throw new GameRuntimeError('player-target-unknown', `Unknown player target: ${JSON.stringify(target)}`);
 }
 
 

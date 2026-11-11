@@ -18,6 +18,7 @@ import type {
 import { drainPlayerTurn } from "#chaincraft/orchestration/game-step.js";
 import { isPlayerAnswered } from "#chaincraft/orchestration/input-check.js";
 import { UndoNotAllowedError } from "#chaincraft/orchestration/errors.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
 
 type UndoTarget =
   /** Re-ask `answered[index]` (the last player answer of the current segment). */
@@ -97,7 +98,7 @@ export async function undoLastAnswer(
 
   const result = await drainPlayerTurn(state, playerId, playerTurn, deps);
   if (result?.kind !== "suspended") {
-    throw new Error(`Undo for "${playerId}" did not leave a pending prompt`);
+    throw new GameRuntimeError("undo-no-prompt", `Undo for "${playerId}" did not leave a pending prompt`);
   }
   return result;
 }

@@ -24,7 +24,7 @@
 
 import type {
   CompiledGameModule,
-  GameSession,
+  CreateSessionOptions,
   GameState,
   Message,
 } from "#chaincraft/types.js";
@@ -46,13 +46,14 @@ import { walkResponses } from "#chaincraft/orchestration/walk.js";
 import { canUndo as canUndoLastAnswer, undoLastAnswer } from "#chaincraft/orchestration/undo.js";
 import type { NextInput, WalkResult } from "#chaincraft/orchestration/walk.js";
 import { IllegalActionError } from "#chaincraft/orchestration/errors.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
 import type { ProjectedState } from "#chaincraft/state/projection.js";
 import {
   projectStateForPlayer,
   projectStateChanges,
 } from "#chaincraft/state/projection.js";
 import type { StateChangeEvent } from "#chaincraft/api/state-change-events.js";
-import type { ActionForfeitEvent } from "#chaincraft/events/emitter.js";
+import type { ActionForfeitEvent, GameEvent } from "#chaincraft/events/emitter.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -81,6 +82,8 @@ export interface GameControllerEvents {
   // -- State observation -----------------------------------------------------
   /** Batch of resolved state mutations in occurrence order, split at turn boundaries. */
   onStateChange?(changes: StateChangeEvent[]): void;
+  /** Every raw engine event, unbuffered, in emission order. For tooling (playtest, tracing), not UIs. */
+  onEngineEvent?(event: GameEvent): void;
 }
 
 export interface GameControllerOptions {
@@ -151,8 +154,12 @@ export class GameController {
    * Create the session and run until first player prompt or completion.
    * Player order determines turn order for "next-player" input types.
    */
-  public async init(gameId: string, players: string[]): Promise<void> {
-    const session = this.module.createSession(gameId, players);
+  public async init(
+    gameId: string,
+    players: string[],
+    options?: CreateSessionOptions,
+  ): Promise<void> {
+    const session = this.module.createSession(gameId, players, options);
     this.execState = {
       session,
       queue: [],
@@ -187,6 +194,9 @@ export class GameController {
       this.#flushBeforeTurnBoundary();
       this.options.events?.onTurnEnd?.(turn);
     });
+    // Subscribed only when requested: emit() is a no-op without listeners.
+    const onEngineEvent = this.options.events?.onEngineEvent;
+    if (onEngineEvent) session.events.on((event) => onEngineEvent(event));
     session.events.emit({ kind: "game:init", gameId, players });
     const result = await step(this.execState, undefined, this.deps);
     await this.settle(result);
@@ -208,10 +218,10 @@ export class GameController {
    */
   public async processResponses(playerId: string, responses: readonly unknown[]): Promise<void> {
     if (this.#outcome !== undefined) {
-      throw new Error("Game is already complete");
+      throw new GameRuntimeError("game-complete", "Game is already complete");
     }
     if (!this.#pendingPrompts.has(playerId)) {
-      throw new Error(`No prompt is awaiting player "${playerId}"`);
+      throw new GameRuntimeError("no-pending-prompt", `No prompt is awaiting player "${playerId}"`);
     }
     const walk = walkResponses(this.execState!, playerId, responses, this.deps!);
     if (walk.kind === "illegal") {
@@ -238,7 +248,7 @@ export class GameController {
    */
   public queryResponses(playerId: string, responses: readonly unknown[]): WalkResult {
     if (!this.#pendingPrompts.has(playerId)) {
-      throw new Error(`No prompt is awaiting player "${playerId}"`);
+      throw new GameRuntimeError("no-pending-prompt", `No prompt is awaiting player "${playerId}"`);
     }
     return walkResponses(this.execState!, playerId, responses, this.deps!);
   }
@@ -256,10 +266,10 @@ export class GameController {
    */
   public async undo(playerId: string): Promise<void> {
     if (this.#outcome !== undefined) {
-      throw new Error("Game is already complete");
+      throw new GameRuntimeError("game-complete", "Game is already complete");
     }
     if (!this.#pendingPrompts.has(playerId)) {
-      throw new Error(`No prompt is awaiting player "${playerId}"`);
+      throw new GameRuntimeError("no-pending-prompt", `No prompt is awaiting player "${playerId}"`);
     }
     const result = await undoLastAnswer(this.execState!, playerId, this.deps!);
     await this.settle(result);
@@ -268,7 +278,7 @@ export class GameController {
   /** Deep snapshot of game state. */
   public getState(_playerId?: string): GameState {
     if (!this.execState) {
-      throw new Error("GameController not initialized — call init() first");
+      throw new GameRuntimeError("not-initialized", "GameController not initialized — call init() first");
     }
     return structuredClone(this.execState.session.state);
   }
@@ -276,7 +286,7 @@ export class GameController {
   /** Returns game state projected for the given player (visibility rules applied). */
   public projectStateForPlayer(playerId: string): ProjectedState {
     if (!this.execState) {
-      throw new Error("GameController not initialized — call init() first");
+      throw new GameRuntimeError("not-initialized", "GameController not initialized — call init() first");
     }
     return projectStateForPlayer(this.execState.session, playerId);
   }
@@ -320,7 +330,8 @@ export class GameController {
 
       if (systemSuspension) {
         if (!this.options.systemResponder) {
-          throw new Error(
+          throw new GameRuntimeError(
+            "no-system-responder",
             `Controller raised a "${systemSuspension.kind}" suspension but no systemResponder is configured`,
           );
         }
@@ -395,7 +406,8 @@ export class GameController {
       actual?.options?.length === predicted.options?.length &&
       (predicted.options ?? []).every((option, i) => actual?.options?.[i] === option);
     if (actual?.input.id !== predicted.input.id || !sameOptions) {
-      throw new Error(
+      throw new GameRuntimeError(
+        "walk-mismatch",
         `walkResponses predicted prompt "${predicted.input.id}" for "${playerId}" but execution ` +
           `produced ${actual ? `"${actual.input.id}" with different options` : "no prompt"}`,
       );

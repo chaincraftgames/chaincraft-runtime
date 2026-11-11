@@ -159,6 +159,62 @@ describe('GameController — High Card full game e2e', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Seed override — init() options.seed replaces the module's own seed.
+// ---------------------------------------------------------------------------
+
+describe('GameController — seed override', () => {
+  async function dealtHands(seed?: number): Promise<string[][]> {
+    const controller = new GameController(setupOnlyModule());
+    await controller.init('seed', PLAYERS, seed === undefined ? undefined : { seed });
+    const state = controller.getState();
+    return PLAYERS.map((pid) => handPieceIds(state, pid));
+  }
+
+  it('same seed → identical initial state', async () => {
+    expect(await dealtHands(7)).toEqual(await dealtHands(7));
+  });
+
+  it('different seeds → different shuffle', async () => {
+    expect(await dealtHands(1)).not.toEqual(await dealtHands(2));
+  });
+
+  it('no seed → module default seed', async () => {
+    expect(await dealtHands()).toEqual(await dealtHands(42));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Engine-event passthrough — onEngineEvent receives raw session events.
+// ---------------------------------------------------------------------------
+
+describe("GameController — engine event passthrough", () => {
+  it("delivers flow:enter, turn:start, effect:execute and game:complete in order", async () => {
+    const kinds: string[] = [];
+    const controller = new GameController(createHighCardModule(), {
+      events: { onEngineEvent: (event) => kinds.push(event.kind) },
+    });
+    await controller.init("ev1", PLAYERS);
+    while (!controller.isComplete) {
+      const prompt = controller.currentPrompt!;
+      await controller.processAction({
+        playerId: prompt.awaiting,
+        value: (prompt.options as string[])[0],
+      });
+    }
+
+    expect(kinds[0]).toBe("game:init");
+    const firstOf = (kind: string): number => kinds.indexOf(kind);
+    for (const kind of ["flow:enter", "turn:start", "effect:execute", "game:complete"]) {
+      expect(firstOf(kind)).toBeGreaterThanOrEqual(0);
+    }
+    expect(firstOf("flow:enter")).toBeLessThan(firstOf("turn:start"));
+    expect(firstOf("turn:start")).toBeLessThan(firstOf("game:complete"));
+    expect(firstOf("effect:execute")).toBeLessThan(firstOf("game:complete"));
+    expect(kinds[kinds.length - 1]).toBe("game:complete");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Event ordering — a prompt must never arrive before the state it refers to.
 // ---------------------------------------------------------------------------
 

@@ -6,6 +6,7 @@ import type {
 } from '../types.js';
 import type { Inventory } from './Inventory.js';
 import { pickRandom } from './utils.js';
+import { GameRuntimeError } from '#chaincraft/errors.js';
 
 export class BagInventory implements Inventory {
   readonly structure = 'none' as const;
@@ -25,7 +26,7 @@ export class BagInventory implements Inventory {
       case 'bottom':
         return pieceIds.slice(-count);
       case 'random':
-        if (!rng) throw new Error('RNG required for random selection');
+        if (!rng) throw new GameRuntimeError('rng-missing', 'RNG required for random selection');
         return pickRandom(pieceIds, count, rng);
     }
   }
@@ -49,7 +50,7 @@ export class BagInventory implements Inventory {
   remove(pieceId: string): void {
     const { pieceIds } = this.data;
     const idx = pieceIds.indexOf(pieceId);
-    if (idx === -1) throw new Error(`Piece ${pieceId} not found in bag inventory`);
+    if (idx === -1) throw new GameRuntimeError('piece-not-in-inventory', `Piece ${pieceId} not found in bag inventory`);
     // Swap with last for O(1) removal — order is meaningless in a bag
     const last = pieceIds.length - 1;
     if (idx !== last) {

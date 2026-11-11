@@ -6,6 +6,7 @@ import type {
 } from '#chaincraft/types.js';
 import type { Inventory } from '#chaincraft/inventory/Inventory.js';
 import { pickRandom, fisherYatesShuffle } from '#chaincraft/inventory/utils.js';
+import { GameRuntimeError } from '#chaincraft/errors.js';
 
 export class StackInventory implements Inventory {
   readonly structure = 'stack' as const;
@@ -25,7 +26,7 @@ export class StackInventory implements Inventory {
       case 'bottom':
         return pieceIds.slice(-count);
       case 'random':
-        if (!rng) throw new Error('RNG required for random selection');
+        if (!rng) throw new GameRuntimeError('rng-missing', 'RNG required for random selection');
         return pickRandom(pieceIds, count, rng);
     }
   }
@@ -55,7 +56,7 @@ export class StackInventory implements Inventory {
   remove(pieceId: string): void {
     const { pieceIds } = this.data;
     const idx = pieceIds.indexOf(pieceId);
-    if (idx === -1) throw new Error(`Piece ${pieceId} not found in stack inventory`);
+    if (idx === -1) throw new GameRuntimeError('piece-not-in-inventory', `Piece ${pieceId} not found in stack inventory`);
     pieceIds.splice(idx, 1);
   }
 

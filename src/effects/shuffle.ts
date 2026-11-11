@@ -16,6 +16,7 @@
 
 import type { GameSession, EffectContext } from "#chaincraft/types.js";
 import { getInventory } from "#chaincraft/inventory/index.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
 
 type ShuffleEffectDef = { inventory: string };
 
@@ -36,7 +37,8 @@ export async function executeShuffle(
   const inv = getInventory(session, inventoryId, playerId ?? undefined);
 
   if (!inv) {
-    throw new Error(
+    throw new GameRuntimeError(
+      "shuffle-inventory-missing",
       `shuffle: inventory "${inventoryId}"` +
         (playerId ? ` for player "${playerId}"` : "") +
         " not found in session state",

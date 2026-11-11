@@ -33,10 +33,18 @@ export function registerPassiveActivations(
   effects: Record<string, EffectRegistration> = {},
 ): void {
   for (const activation of activations) {
+    const fire = (): void => {
+      session.events.emit({
+        kind: "passive:fire",
+        passiveId: activation.passiveId,
+        ...(activation.binding.kind === "piece" && { ownerPieceId: activation.binding.pieceId }),
+      });
+    };
     if (activation.timing === "before") {
       bus.onBefore(activation.trigger.kind, {
         match: (event, s) => matchesPassiveActivation(activation, event, s),
         act: (pending: PendingEffect) => {
+          fire();
           for (const effect of activation.compiledEffects) {
             const e = effect as Record<string, unknown>;
             if (e.kind === "cancel-effect") {
@@ -55,6 +63,7 @@ export function registerPassiveActivations(
       bus.onAfter(activation.trigger.kind, {
         match: (event, s) => matchesPassiveActivation(activation, event, s),
         act: async (event: EffectEvent, s: GameSession): Promise<void> => {
+          fire();
           // SkipTurnEvent has no actorId; all others do.
           const actorId = event.kind !== "skip-turn" ? event.actorId : null;
           const sourcePieceId =

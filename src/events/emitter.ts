@@ -30,6 +30,8 @@ export type GameEvent =
   | InputResolveEvent
   | InputUndoEvent
   | ActionForfeitEvent
+  | ActionStartEvent
+  | PassiveFireEvent
   | MessageEmitEvent
   | StateChangeInternalEvent;
 
@@ -111,6 +113,21 @@ export interface ActionForfeitEvent {
   playerId: string;
   actionId: string | undefined;
   inputId: string;
+}
+
+/** An event emitted when a player starts an action; `auto` when no choice was offered (singleton grammar). */
+export interface ActionStartEvent {
+  kind: "action:start";
+  playerId: string;
+  actionId: string;
+  auto: boolean;
+}
+
+/** An event emitted when a passive activation runs; `ownerPieceId` is absent for role-bound passives. */
+export interface PassiveFireEvent {
+  kind: "passive:fire";
+  passiveId: string;
+  ownerPieceId?: string;
 }
 
 /** An event emitted when a message is emitted. */

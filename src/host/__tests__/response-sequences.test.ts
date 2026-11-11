@@ -604,6 +604,49 @@ describe("GameController.undo", () => {
   });
 });
 
+describe("action:start engine event", () => {
+  async function startedWithStarts(turnOverrides?: Partial<TurnNode>) {
+    const starts: unknown[] = [];
+    const controller = new GameController(choiceModule([], { bid }, turnOverrides), {
+      events: {
+        onEngineEvent: (e) => {
+          if (e.kind === "action:start") starts.push({ ...e });
+        },
+      },
+    });
+    await controller.init("start", PLAYERS);
+    return { controller, starts };
+  }
+
+  it("fires once with auto: false when the player chooses an action", async () => {
+    const { controller, starts } = await startedWithStarts();
+    expect(starts).toEqual([]);
+
+    await controller.processResponses("alice", [act("bid")]);
+
+    expect(starts).toEqual([{ kind: "action:start", playerId: "alice", actionId: "bid", auto: false }]);
+  });
+
+  it("fires with auto: true for a singleton action with no pass", async () => {
+    const { starts } = await startedWithStarts({ grammar: { kind: "action", ref: "bid" } });
+
+    expect(starts).toEqual([{ kind: "action:start", playerId: "alice", actionId: "bid", auto: true }]);
+  });
+
+  it("does not fire again on undo until the action is re-chosen", async () => {
+    const { controller, starts } = await startedWithStarts();
+    await controller.processResponses("alice", [act("bid")]);
+    expect(starts).toHaveLength(1);
+
+    await controller.undo("alice");
+    expect(controller.promptFor("alice")?.input.id).toBe("__action-select__");
+    expect(starts).toHaveLength(1);
+
+    await controller.processResponses("alice", [act("bid")]);
+    expect(starts).toHaveLength(2);
+  });
+});
+
 describe("GameController.processResponses — walk/execution agreement", () => {
   it("fails loudly when execution stops at a different prompt than the walk predicted", async () => {
     // A rule that flips once the engine resolves an answer: the walk sees one option list,

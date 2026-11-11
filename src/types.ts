@@ -753,12 +753,16 @@ export interface PassivePieceActivation extends PassiveActivation {
   ) => boolean;
 }
 
+export interface CreateSessionOptions {
+  readonly seed?: number;
+}
+
 export interface CompiledGameModule {
   readonly specId: string;
   readonly metadata: { name: string; playerCount: PlayerCount };
 
-  /** Create a new GameSession for this spec with the given players. */
-  createSession(gameId: string, players: string[]): GameSession;
+  /** Create a new GameSession for this spec with the given players. `options.seed` overrides the spec's seed source. */
+  createSession(gameId: string, players: string[], options?: CreateSessionOptions): GameSession;
 
   /** The flow tree to execute. */
   readonly flow: FlowNode;

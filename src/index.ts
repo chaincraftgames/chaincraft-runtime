@@ -17,14 +17,25 @@ export type {
   InputPromptEvent,
   InputResolveEvent,
   InputUndoEvent,
+  ActionStartEvent,
+  PassiveFireEvent,
   MessageEmitEvent,
   GameInitEvent,
   GameCompleteEvent,
   StateChangeInternalEvent,
 } from "#chaincraft/events/emitter.js";
 export { GameController } from "#chaincraft/api/game-controller.js";
-export { IllegalActionError, UndoNotAllowedError } from "#chaincraft/orchestration/errors.js";
-export { MAX_NUMBER_OPTIONS, numberOptionCount } from "#chaincraft/orchestration/options.js";
+export {
+  IllegalActionError,
+  StepBudgetExceededError,
+  UndoNotAllowedError,
+} from "#chaincraft/orchestration/errors.js";
+export { GameRuntimeError, FAULT_ORIGINS, isGameRuntimeError } from "#chaincraft/errors.js";
+export type { FaultOrigin, FaultCode, FaultCodeOf } from "#chaincraft/errors.js";
+export {
+  MAX_NUMBER_OPTIONS,
+  numberOptionCount,
+} from "#chaincraft/orchestration/options.js";
 export type {
   GameControllerEvents,
   GameControllerOptions,

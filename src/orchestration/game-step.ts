@@ -76,6 +76,27 @@ import {
   getAnswerRejectionReason,
 } from "#chaincraft/orchestration/input-check.js";
 import { hasCompletion } from "#chaincraft/orchestration/input-completion.js";
+import { StepBudgetExceededError } from "#chaincraft/orchestration/errors.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
+
+const DEFAULT_MAX_STEP_WORK = 10_000;
+
+/** Work remaining for one step() call; shared by every drain it triggers. */
+interface WorkBudget {
+  limit: number;
+  remaining: number;
+}
+
+function createBudget(deps: GameExecutionDeps): WorkBudget {
+  const limit = deps.maxStepWork ?? DEFAULT_MAX_STEP_WORK;
+  return { limit, remaining: limit };
+}
+
+function spendWork(state: GameExecutionState, budget: WorkBudget): void {
+  if (--budget.remaining < 0) {
+    throw new StepBudgetExceededError(budget.limit, state.flowStack.at(-1)?.nodeId);
+  }
+}
 
 /** The complete set of suspensions the execution is currently waiting on. */
 function collectWaiting(state: GameExecutionState): Suspension[] {
@@ -142,14 +163,16 @@ export async function step(
   input: PlayerInput | SystemResponse | undefined,
   deps: GameExecutionDeps,
 ): Promise<StepResult> {
+  const budget = createBudget(deps);
+
   // Fork mode: route player input to the right resume handler.
   if (input && state.playerTurns) {
     const playerInput = input as PlayerInput;
     const playerTurn = state.playerTurns[playerInput.playerId];
     if (!playerTurn) {
-      throw new Error(`Player "${playerInput.playerId}" has no active playerTurn in fork mode`);
+      throw new GameRuntimeError("fork-state-invalid", `Player "${playerInput.playerId}" has no active playerTurn in fork mode`);
     }
-    return resumePlayerTurn(state, playerInput, playerTurn, deps);
+    return resumePlayerTurn(state, playerInput, playerTurn, deps, budget);
   }
 
   // Game-level resume.  Expect SystemResponse (e.g. LLM, external data) only.
@@ -157,13 +180,14 @@ export async function step(
     applyGameLevelResume(state, input);
   }
 
-  return drainGameLevel(state, deps);
+  return drainGameLevel(state, deps, budget);
 }
 
 /** Drain the game-level queue. */
 async function drainGameLevel(
   state: GameExecutionState, 
-  deps: GameExecutionDeps
+  deps: GameExecutionDeps,
+  budget: WorkBudget,
 ): Promise<StepResult> {
   const ctx: DrainContext = {
     onEmpty(): DrainSignal {
@@ -195,7 +219,8 @@ async function drainGameLevel(
       return { kind: 'continue' };
     },
     onPlayerInputNeeded(): DrainSignal {
-      throw new Error(
+      throw new GameRuntimeError(
+        "hook-needs-input",
         'Game-level hook effects must not require player input. ' +
         'Use an auto-resolvable input kind (effect-originator, trigger-input) instead.',
       );
@@ -203,7 +228,7 @@ async function drainGameLevel(
   };
 
   while (true) {
-    const signal = await drainQueue(state, state.queue, ctx, deps.module, deps.resolveOptions);
+    const signal = await drainQueue(state, state.queue, ctx, deps.module, deps.resolveOptions, budget);
     if (signal.kind === 'prompt') return {
       kind: 'suspended',
       state,
@@ -215,10 +240,10 @@ async function drainGameLevel(
       outcome: signal.outcome 
     };
     if (signal.kind === 'turn-complete') {
-      throw new Error('Unexpected turn-complete signal from the game-level drain');
+      throw new GameRuntimeError("fork-state-invalid", 'Unexpected turn-complete signal from the game-level drain');
     }
     if (signal.kind === 'fork') {
-      const forkResult = await drainAllPlayerTurns(state, deps);
+      const forkResult = await drainAllPlayerTurns(state, deps, budget);
       if (forkResult) return forkResult;
       // All player turns joined: state.playerTurns is undefined again; loop so
       // advanceFlow gets called on the next empty-queue cycle.
@@ -270,13 +295,14 @@ function joinPlayerTurns(state: GameExecutionState): void {
 async function drainAllPlayerTurns(
   state: GameExecutionState,
   deps: GameExecutionDeps,
+  budget: WorkBudget,
 ): Promise<StepResult | undefined> {
   const playerTurns = state.playerTurns!;
 
   for (const [playerId, playerTurn] of Object.entries(playerTurns)) {
     if (playerTurn.done || playerTurn.pending) continue;
     // Any suspension is stored on playerTurn.pending; surfaced below.
-    await drainPlayerTurn(state, playerId, playerTurn, deps);
+    await drainPlayerTurn(state, playerId, playerTurn, deps, budget);
   }
 
   // Join condition: all players done.
@@ -287,7 +313,7 @@ async function drainAllPlayerTurns(
 
   // Every non-done turn must now be pending (fork invariant).
   if (Object.values(playerTurns).some(t => !t.done && !t.pending)) {
-    throw new Error('Fork mode: a player turn is neither done nor pending after draining');
+    throw new GameRuntimeError("fork-state-invalid", 'Fork mode: a player turn is neither done nor pending after draining');
   }
   return { kind: 'suspended', state, waiting: collectWaiting(state) };
 }
@@ -301,6 +327,7 @@ export async function drainPlayerTurn(
   playerId: string,
   playerTurn: PlayerTurnState,
   deps: GameExecutionDeps,
+  budget: WorkBudget = createBudget(deps),
 ): Promise<StepResult | undefined> {
   const ctx: DrainContext = {
     onEmpty(): DrainSignal {
@@ -333,7 +360,7 @@ export async function drainPlayerTurn(
   };
 
   while (true) {
-    const signal = await drainQueue(state, playerTurn.queue, ctx, deps.module, deps.resolveOptions);
+    const signal = await drainQueue(state, playerTurn.queue, ctx, deps.module, deps.resolveOptions, budget);
     if (signal.kind === 'turn-complete') return;
     if (signal.kind === 'prompt') {
       return { kind: 'suspended', state, waiting: collectWaiting(state) };
@@ -350,15 +377,16 @@ async function resumePlayerTurn(
   input: PlayerInput,
   playerTurn: PlayerTurnState,
   deps: GameExecutionDeps,
+  budget: WorkBudget,
 ): Promise<StepResult> {
   const pending = playerTurn.pending;
   if (!pending) {
-    throw new Error(`Player "${input.playerId}" submitted input but has no pending suspension`);
+    throw new GameRuntimeError("fork-state-invalid", `Player "${input.playerId}" submitted input but has no pending suspension`);
   }
 
   const { suspension } = pending;
   if (suspension.kind !== 'player-input') {
-    throw new Error(`Player turn suspension for "${input.playerId}" is not a player-input`);
+    throw new GameRuntimeError("fork-state-invalid", `Player turn suspension for "${input.playerId}" is not a player-input`);
   }
 
   validatePlayerInput(state, input, suspension, pending.group?.collected ?? {});
@@ -376,12 +404,18 @@ async function resumePlayerTurn(
       const items = explodeAction(actionId, input.playerId, deps.module);
       if (items.length > 0) items[0].group.selection = { cursor: cursorBeforeChoice };
       playerTurn.queue.push(...items);
+      state.session.events.emit({
+        kind: 'action:start',
+        playerId: input.playerId,
+        actionId,
+        auto: false,
+      });
     }
     // Fall through to drain the player turn.
   } else {
     // Queue-level input (data collection for an in-progress action).
     if (!pending.group || !pending.inputId) {
-      throw new Error(`Player "${input.playerId}" pending has no group/inputId for queue-level input`);
+      throw new GameRuntimeError("fork-state-invalid", `Player "${input.playerId}" pending has no group/inputId for queue-level input`);
     }
     pending.group.collected[pending.inputId] = input.value;
     (pending.group.answered ??= []).push({
@@ -399,7 +433,7 @@ async function resumePlayerTurn(
     // Fall through to drain the player turn.
   }
 
-  const result = await drainPlayerTurn(state, input.playerId, playerTurn, deps);
+  const result = await drainPlayerTurn(state, input.playerId, playerTurn, deps, budget);
   if (result) return result;
 
   // This player's turn finished. Every other player turn is already settled
@@ -407,12 +441,12 @@ async function resumePlayerTurn(
   // another player's pending prompt is surfaced.
   if (Object.values(state.playerTurns!).every(t => t.done)) {
     joinPlayerTurns(state);
-    return drainGameLevel(state, deps);
+    return drainGameLevel(state, deps, budget);
   }
 
   // Every non-done turn must now be pending (fork invariant).
   if (Object.values(state.playerTurns!).some(t => !t.done && !t.pending)) {
-    throw new Error('Fork mode: a player turn is neither done nor pending after resume');
+    throw new GameRuntimeError("fork-state-invalid", 'Fork mode: a player turn is neither done nor pending after resume');
   }
   return { kind: 'suspended', state, waiting: collectWaiting(state) };
 }
@@ -427,8 +461,10 @@ async function drainQueue(
   ctx: DrainContext,
   module: CompiledGameModule,
   resolveOptions: OptionsResolver,
+  budget: WorkBudget,
 ): Promise<DrainSignal> {
   while (true) {
+    spendWork(state, budget);
     if (queue.length === 0) {
       const signal = ctx.onEmpty();
       if (signal.kind !== 'continue') return signal;
@@ -448,7 +484,7 @@ async function drainQueue(
       }
 
       if (!item.group.actorId) {
-        throw new Error(`Queue input "${item.input.id}" has no actor`);
+        throw new GameRuntimeError("input-no-actor", `Queue input "${item.input.id}" has no actor`);
       }
 
       const { actorId, collected } = item.group;
@@ -478,7 +514,8 @@ async function drainQueue(
       }
       const options = inputOptions(state, item.input, actorId, collected, later, resolveOptions);
       if (options !== undefined && options.length === 0) {
-        throw new Error(
+        throw new GameRuntimeError(
+          "input-no-options",
           `Input "${item.input.id}" has no valid options for player "${actorId}"; ` +
             'the action should not have been offered',
         );
@@ -538,7 +575,7 @@ function applyGameLevelResume(
   // System response (llm / external-data).
   const response = input as SystemResponse;
   if (response.requestId !== (suspension as { requestId?: string }).requestId) {
-    throw new Error(`Resume requestId "${response.requestId}" does not match pending suspension`);
+    throw new GameRuntimeError("resume-mismatch", `Resume requestId "${response.requestId}" does not match pending suspension`);
   }
   // TODO: deliver response.result to awaiting effect via pending.group.collected.
   state.pending = undefined;
@@ -560,7 +597,8 @@ function validatePlayerInput(
     collected,
   });
   if (rejection === undefined) return;
-  throw new Error(
+  throw new GameRuntimeError(
+    "walk-mismatch",
     `Response from "${input.playerId}" to "${suspension.input.id}" passed walkResponses ` +
       `but was rejected at execution: ${rejection.reason}`,
   );
@@ -578,7 +616,7 @@ function resolveEffectDef(module: CompiledGameModule, ref: EffectRef): Record<st
   ) {
     const id = (ref as { ref: string }).ref;
     const def = module.effectDefs[id];
-    if (!def) throw new Error(`Unknown effect ref "${id}"`);
+    if (!def) throw new GameRuntimeError("effect-ref-unknown", `Unknown effect ref "${id}"`);
     return def;
   }
   return ref as Record<string, unknown>;
@@ -593,7 +631,7 @@ async function executeEffectItem(
   const effectDef = resolveEffectDef(module, item.effect);
   const kind = effectDef.kind as string;
   const registration = module.effects[kind];
-  if (!registration) throw new Error(`No effect executor registered for kind "${kind}"`);
+  if (!registration) throw new GameRuntimeError("executor-missing", `No effect executor registered for kind "${kind}"`);
   const ctx: EffectContext = {
     actorId: item.group.actorId ?? null,
     actionInputs: item.group.collected,
@@ -612,6 +650,6 @@ async function executeEffectItem(
       context: ctx,
     });
   } else {
-    throw new Error(`Suspending effect "${kind}" is not yet handled.`);
+    throw new GameRuntimeError("suspending-effect-unsupported", `Suspending effect "${kind}" is not yet handled.`);
   }
 }

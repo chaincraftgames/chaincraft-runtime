@@ -27,6 +27,7 @@ import type { Inventory } from "#chaincraft/inventory/Inventory.js";
 import { getInventory } from "#chaincraft/inventory/index.js";
 import { resolvePlayerTarget } from "#chaincraft/effects/player-target.js";
 import type { PlayerTarget } from "#chaincraft/effects/player-target.js";
+import { GameRuntimeError } from "#chaincraft/errors.js";
 
 export type GamepieceSelector = {
   player?: PlayerTarget;
@@ -139,7 +140,8 @@ function resolveSources(
 
   if (scope === "player") {
     if (!sel.player && !ctx.actorId) {
-      throw new Error(
+      throw new GameRuntimeError(
+        "selector-no-player",
         `Selector on player-scoped inventory "${sel.inventory}" has no player and no actor in context; ` +
           `name the players explicitly, e.g. player: all`,
       );
