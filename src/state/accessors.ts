@@ -144,18 +144,27 @@ function computedDefault(aggregate: string): unknown {
   }
 }
 
+const computedConfigCache = new WeakMap<
+  Record<string, PropertyConfig>,
+  Record<string, ComputedPropertyConfig>
+>();
+
 /**
  * Build a lookup of computed property configs for a given properties record.
+ * Cached per config object; session configs are not mutated after creation.
  */
 function getComputedConfigs(
   configs: Record<string, PropertyConfig>,
 ): Record<string, ComputedPropertyConfig> {
+  const cached = computedConfigCache.get(configs);
+  if (cached) return cached;
   const result: Record<string, ComputedPropertyConfig> = {};
   for (const [key, config] of Object.entries(configs)) {
     if (config.computed) {
       result[key] = config.computed;
     }
   }
+  computedConfigCache.set(configs, result);
   return result;
 }
 

@@ -706,6 +706,27 @@ describe('projectStateForPlayer', () => {
   });
 
   // -------------------------------------------------------------------------
+  // reveal override and revealed properties
+  // -------------------------------------------------------------------------
+
+  describe('revealed property with a reveal override', () => {
+    it('shows revealed properties of a face-down piece to the viewers it was revealed to', () => {
+      const session = makeSession();
+      // c9 is face-down in bob's owner-only hand, revealed to alice
+      session.state.gamepieces['c9'].visibleTo = ['alice'];
+      const view = projectStateForPlayer(session, 'alice');
+      expect(view.gamepieces['c9'].properties['suit']).toBe('clubs');
+      expect(view.gamepieces['c9'].properties['rank']).toBe('A');
+    });
+
+    it('keeps revealed properties hidden from a face-down piece without an override', () => {
+      const session = makeSession();
+      const view = projectStateForPlayer(session, 'bob');
+      expect(view.gamepieces['c9'].properties['suit']).toBeUndefined();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // countVisibility
   // -------------------------------------------------------------------------
 

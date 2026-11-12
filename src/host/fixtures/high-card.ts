@@ -84,7 +84,7 @@ function initialState(players: string[]): GameState {
       typeId: 'card',
       ownerId: '',
       properties: { value },
-      faceUp: false,
+      faceUp: true,
       exhausted: false,
       visibleTo: null,
     };

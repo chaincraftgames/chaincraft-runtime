@@ -2,7 +2,7 @@
 // Effect executor: flip
 //
 // Changes the physical face state of pieces (faceUp boolean).
-// Requires hasFaceState: true on the piece type config.
+// Pieces whose type lacks hasFaceState are permanently face-up and are skipped.
 // ---------------------------------------------------------------------------
 
 import type { GameSession, EffectContext } from "#chaincraft/types.js";
@@ -23,6 +23,7 @@ export async function executeFlip(
   for (const pieceId of pieceIds) {
     const piece = session.state.gamepieces[pieceId];
     if (!piece) continue;
+    if (!session.config.gamepieceTypes[piece.typeId]?.hasFaceState) continue;
 
     if (to === "face-up") {
       piece.faceUp = true;

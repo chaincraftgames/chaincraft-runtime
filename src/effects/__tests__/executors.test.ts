@@ -30,6 +30,7 @@ function makeConfig(overrides?: Partial<GameConfig>): GameConfig {
     gamepieceTypes: {
       weapon: {
         category: 'token',
+        hasFaceState: true,
         properties: {
           description: { mutable: true },
           rps: { mutable: true, enumValues: ['rock', 'paper', 'scissors'] },
@@ -1291,6 +1292,18 @@ describe('executeFlip', () => {
     }));
     expect(session.state.gamepieces['weapon-1'].faceUp).toBe(false);
     expect(session.state.gamepieces['weapon-2'].faceUp).toBe(false);
+  });
+
+  it('skips pieces whose type has no face state', async () => {
+    const session = makeSession();
+    session.config.gamepieceTypes['weapon'].hasFaceState = false;
+    const events: unknown[] = [];
+    session.events.on('state:change', (e) => events.push(e));
+    await executeFlip(session, makeCtx({
+      effectDef: { pieces: { inventory: 'forge', select: 'all' }, to: 'face-down' },
+    }));
+    expect(session.state.gamepieces['weapon-1'].faceUp).toBe(true);
+    expect(events).toHaveLength(0);
   });
 });
 

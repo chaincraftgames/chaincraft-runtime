@@ -160,13 +160,20 @@ function projectInventory(
     : { redacted: "hidden" };
 }
 
-/** Filter gamepiece properties based on visibility config, owner, and face state. */
+/** Indicates if the piece properties are visible to the viewer. */
+function isPieceRevealedTo(piece: Gamepiece, viewerId: string): boolean {
+  if (piece.faceUp) return true;
+  if (piece.visibleTo === null) return false;
+  return piece.visibleTo === "all" || piece.visibleTo.includes(viewerId);
+}
+
+/** Filter gamepiece properties based on visibility config, owner, and whether the piece is revealed. */
 function projectGamepieceProperties(
   properties: Record<string, unknown>,
   configs: Record<string, GamepiecePropertyConfig>,
   ownerId: string,
   viewerId: string,
-  faceUp: boolean,
+  revealed: boolean,
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(properties)) {
@@ -180,7 +187,7 @@ function projectGamepieceProperties(
         if (viewerId === ownerId) result[key] = value;
         break;
       case "revealed":
-        if (faceUp) result[key] = value;
+        if (revealed) result[key] = value;
         break;
       case "never":
         break;
@@ -405,7 +412,7 @@ export function projectStateForPlayer(
         propConfigs,
         piece.ownerId,
         viewerId,
-        piece.faceUp,
+        isPieceRevealedTo(piece, viewerId),
       ),
       faceUp: piece.faceUp,
       ...(piece.faceValue !== undefined && { faceValue: piece.faceValue }),
@@ -637,7 +644,7 @@ function projectPropertyChangedEvent(
     case "owner":
       return viewerId === piece.ownerId ? event : null;
     case "revealed":
-      return piece.faceUp ? event : null;
+      return isPieceRevealedTo(piece, viewerId) ? event : null;
     case "never":
       return null;
   }
