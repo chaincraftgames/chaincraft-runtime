@@ -31,7 +31,7 @@ export {
   UndoNotAllowedError,
 } from "#chaincraft/orchestration/errors.js";
 export { GameRuntimeError, FAULT_ORIGINS, isGameRuntimeError } from "#chaincraft/errors.js";
-export type { FaultOrigin, FaultCode, FaultCodeOf } from "#chaincraft/errors.js";
+export type { FaultOrigin, FaultCode, FaultCodeOf, FaultSite } from "#chaincraft/errors.js";
 export {
   MAX_NUMBER_OPTIONS,
   numberOptionCount,

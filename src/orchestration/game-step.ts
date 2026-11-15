@@ -77,7 +77,8 @@ import {
 } from "#chaincraft/orchestration/input-check.js";
 import { hasCompletion } from "#chaincraft/orchestration/input-completion.js";
 import { StepBudgetExceededError } from "#chaincraft/orchestration/errors.js";
-import { GameRuntimeError } from "#chaincraft/errors.js";
+import { GameRuntimeError, isGameRuntimeError } from "#chaincraft/errors.js";
+import type { FaultSite } from "#chaincraft/errors.js";
 
 const DEFAULT_MAX_STEP_WORK = 10_000;
 
@@ -543,7 +544,14 @@ async function drainQueue(
 
     // Effect item.
     queue.shift();
-    await executeEffectItem(state, item, module);
+    try {
+      await executeEffectItem(state, item, module);
+    } catch (error) {
+      if (isGameRuntimeError(error) && error.site === undefined) {
+        error.site = faultSite(state, item);
+      }
+      throw error;
+    }
     // TODO: once EffectExecutor can return a Suspension (reactive-choice,
     // llm, external-data), check for one here and return a prompt signal.
   }
@@ -620,6 +628,18 @@ function resolveEffectDef(module: CompiledGameModule, ref: EffectRef): Record<st
     return def;
   }
   return ref as Record<string, unknown>;
+}
+
+/** Where an effect item runs: its action, named ref (bare `{ ref }` only) and innermost flow node. */
+function faultSite(state: GameExecutionState, item: EffectQueueItem): FaultSite {
+  const site: FaultSite = {};
+  const actionId = item.group.actionId;
+  if (actionId !== undefined) site.actionId = actionId;
+  const effect = item.effect as Record<string, unknown>;
+  if (typeof effect.ref === "string" && Object.keys(effect).length === 1) site.effectRef = effect.ref;
+  const nodeId = state.flowStack.at(-1)?.nodeId;
+  if (nodeId !== undefined) site.nodeId = nodeId;
+  return site;
 }
 
 /** Executes an effect item. */

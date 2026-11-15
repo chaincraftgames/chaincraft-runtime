@@ -70,10 +70,18 @@ export type FaultCodeOf<O extends FaultOrigin> = {
   [K in FaultCode]: (typeof FAULT_ORIGINS)[K] extends O ? K : never;
 }[FaultCode];
 
+/** Where an effect fault happened; set by the engine, absent for faults outside effect execution. */
+export interface FaultSite {
+  actionId?: string;
+  effectRef?: string;
+  nodeId?: string;
+}
+
 /** A fault raised while running a game, tagged with a stable code and its likely origin. */
 export class GameRuntimeError extends Error {
   override name = "GameRuntimeError";
   readonly origin: FaultOrigin;
+  site?: FaultSite;
 
   constructor(
     public readonly code: FaultCode,
