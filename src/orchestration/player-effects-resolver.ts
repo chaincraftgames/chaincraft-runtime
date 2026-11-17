@@ -35,6 +35,8 @@ export type PlayerTurnSignal =
  * Computes the next unit of work for one player's runner.
  *
  * - Cursor done → 'done' (runner joins).
+ * - The current sequence step is optional and its action is unavailable → skip it
+ *   (no action:start) and continue with the next step.
  * - Legal actions is a singleton with canPass=false → no decision exists;
  *   explode the action into queue items and advance the cursor immediately
  *   (no player response needed).
@@ -50,14 +52,30 @@ export function nextPlayerTurnWork(
   nodeLabel?: string,
   resolveOptions: OptionsResolver = defaultResolveOptions,
 ): PlayerTurnSignal {
+  return workAt(playerId, cursor, grammar, state, module, nodeLabel, resolveOptions, 0);
+}
+
+/** `skipped` counts optional steps skipped so far in this call chain. */
+function workAt(
+  playerId: string,
+  cursor: PlayerTurnCursor,
+  grammar: Grammar,
+  state: GameExecutionState,
+  module: CompiledGameModule,
+  nodeLabel: string | undefined,
+  resolveOptions: OptionsResolver,
+  skipped: number,
+): PlayerTurnSignal {
   if (cursor.done) return { kind: "done" };
 
   // Runs when the queue is empty, so state already reflects the previous action's effects.
+  // Checked only at an iteration boundary (sequenceIndex 0), i.e. after a whole sequence body.
   if (
     grammar.kind === "repeat" &&
     typeof grammar.count === "object" &&
     "endCondition" in grammar.count &&
     cursor.repeatCount > 0 &&
+    cursor.sequenceIndex === 0 &&
     grammar.count.endCondition(state.session, playerId)
   ) {
     cursor.done = true;
@@ -65,6 +83,8 @@ export function nextPlayerTurnWork(
   }
 
   const { actions: structuralActions, canPass } = resolveLegalActions(grammar, cursor);
+  const sequence =
+    grammar.kind === "sequence" ? grammar : grammar.kind === "repeat" && grammar.body.kind === "sequence" ? grammar.body : undefined;
 
   // Offer only actions whose precondition holds and whose inputs can all be answered.
   const actions = structuralActions.filter((id) => {
@@ -78,6 +98,18 @@ export function nextPlayerTurnWork(
       resolveOptions
     );
   });
+
+  if (actions.length === 0 && sequence?.optional?.[cursor.sequenceIndex]) {
+    // Every step of one repeat iteration skipped means the repeat can never progress.
+    if (grammar.kind === "repeat" && skipped + 1 >= sequence.actions.length) {
+      throw new GameRuntimeError(
+        "no-legal-actions",
+        `Player "${playerId}" has no legal actions at node "${nodeLabel ?? "unknown"}" — every step of a repeated sequence was skipped`,
+      );
+    }
+    advanceGrammarCursor(cursor, grammar, false);
+    return workAt(playerId, cursor, grammar, state, module, nodeLabel, resolveOptions, skipped + 1);
+  }
 
   if (actions.length === 0 && !canPass) {
     throw new GameRuntimeError(

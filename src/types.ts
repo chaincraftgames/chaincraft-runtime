@@ -564,10 +564,15 @@ export type ChoiceGrammar = {
   passable?: boolean;
 };
 
-/** Player executes these actions in order (each is mandatory, no choice). */
+/**
+ * Player executes these actions in order (each is mandatory, no choice).
+ * A step flagged in `optional` is skipped, without a prompt, when its action is unavailable.
+ */
 export type SequenceGrammar = {
   kind: "sequence";
   actions: string[];
+  /** Parallel to `actions`; omitted when no step is optional. */
+  optional?: boolean[];
 };
 
 /**
@@ -582,6 +587,9 @@ export type SequenceGrammar = {
  * - { endCondition, max? }: repeat until endCondition returns true (checked after each iteration's
  *   effects, actor bound) or max iterations are done. The body always runs once; pass is
  *   never legal. Only evaluated on the top-level grammar of a turn.
+ *
+ * With a sequence body, one iteration is the whole sequence; counts, pass and endCondition apply at
+ * iteration boundaries only.
  */
 export type RepeatGrammar = {
   kind: "repeat";

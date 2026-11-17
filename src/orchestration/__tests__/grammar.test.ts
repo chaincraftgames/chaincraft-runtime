@@ -124,6 +124,29 @@ describe('resolveLegalActions', () => {
       expect(resolveLegalActions(g, cursor(0, 0))).toEqual({ actions: ['draw'], canPass: true });
     });
   });
+
+  describe('repeat — sequence body', () => {
+    const body: Grammar = { kind: 'sequence', actions: ['a', 'b'] };
+
+    it('returns the current sequence step', () => {
+      const g: Grammar = { kind: 'repeat', body, count: 2 };
+      expect(resolveLegalActions(g, cursor(0, 0)).actions).toEqual(['a']);
+      expect(resolveLegalActions(g, cursor(1, 0)).actions).toEqual(['b']);
+    });
+
+    it('until-pass: pass is offered only at an iteration boundary', () => {
+      const g: Grammar = { kind: 'repeat', body, count: 'until-pass' };
+      expect(resolveLegalActions(g, cursor(0, 1)).canPass).toBe(true);
+      expect(resolveLegalActions(g, cursor(1, 1)).canPass).toBe(false);
+    });
+
+    it('range: pass is offered only at an iteration boundary at or above min', () => {
+      const g: Grammar = { kind: 'repeat', body, count: { min: 1, max: 3 } };
+      expect(resolveLegalActions(g, cursor(0, 0)).canPass).toBe(false);
+      expect(resolveLegalActions(g, cursor(0, 1)).canPass).toBe(true);
+      expect(resolveLegalActions(g, cursor(1, 1)).canPass).toBe(false);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -295,6 +318,49 @@ describe('advanceGrammarCursor', () => {
       advanceGrammarCursor(c, g, true); // pass
       expect(c.done).toBe(true);
       expect(c.repeatCount).toBe(2); // not incremented on pass
+    });
+  });
+
+  describe('repeat — sequence body', () => {
+    const body: Grammar = { kind: 'sequence', actions: ['a', 'b'] };
+
+    it('fixed count: steps through the body, counts one iteration per full pass, done at count', () => {
+      const g: Grammar = { kind: 'repeat', body, count: 2 };
+      const c = cursor();
+
+      advanceGrammarCursor(c, g, false, 'a');
+      expect(c).toEqual({ sequenceIndex: 1, repeatCount: 0, done: false });
+
+      advanceGrammarCursor(c, g, false, 'b');
+      expect(c).toEqual({ sequenceIndex: 0, repeatCount: 1, done: false });
+
+      advanceGrammarCursor(c, g, false, 'a');
+      expect(c).toEqual({ sequenceIndex: 1, repeatCount: 1, done: false });
+
+      advanceGrammarCursor(c, g, false, 'b');
+      expect(c.repeatCount).toBe(2);
+      expect(c.done).toBe(true);
+    });
+
+    it('until: never done mid-iteration even at max; done at max after the last step', () => {
+      const g: Grammar = { kind: 'repeat', body, count: { endCondition: () => false, max: 1 } };
+      const c = cursor();
+
+      advanceGrammarCursor(c, g, false, 'a');
+      expect(c.done).toBe(false);
+
+      advanceGrammarCursor(c, g, false, 'b');
+      expect(c.repeatCount).toBe(1);
+      expect(c.done).toBe(true);
+    });
+
+    it('until-pass: pass at an iteration boundary ends the repeat', () => {
+      const g: Grammar = { kind: 'repeat', body, count: 'until-pass' };
+      const c = cursor(0, 1);
+
+      advanceGrammarCursor(c, g, true);
+      expect(c.done).toBe(true);
+      expect(c.repeatCount).toBe(1);
     });
   });
 });

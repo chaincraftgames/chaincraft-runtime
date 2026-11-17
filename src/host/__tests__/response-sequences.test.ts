@@ -573,6 +573,29 @@ describe("GameController.undo", () => {
     await expect(controller.undo("alice")).rejects.toBeInstanceOf(UndoNotAllowedError);
   });
 
+  it("undoes an answer in the step after a skipped optional step", async () => {
+    const skipped: ActionDef = {
+      id: "skipped",
+      label: "Skipped",
+      description: "Never available.",
+      precondition: () => false,
+      segments: [{ inputs: [], effects: [{ kind: "record" }] }],
+    };
+    const { controller, recorded } = await started(
+      { bid, skipped },
+      { grammar: { kind: "sequence", actions: ["skipped", "bid"], optional: [true, false] } },
+    );
+    expect(controller.promptFor("alice")?.input.id).toBe("quantity");
+
+    await controller.processResponses("alice", [1]);
+    expect(controller.promptFor("alice")?.input.id).toBe("face");
+    await controller.undo("alice");
+    expect(controller.promptFor("alice")?.input.id).toBe("quantity");
+
+    await controller.processResponses("alice", [3, 1]);
+    expect(recorded).toEqual([{ quantity: 3, face: 1 }]);
+  });
+
   it("has nothing to undo at an action-select or without a prompt", async () => {
     const { controller } = await started();
 

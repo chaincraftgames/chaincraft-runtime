@@ -43,6 +43,11 @@ export function advanceGrammarCursor(
       break;
     case "repeat": {
       const count = grammar.count;
+      if (grammar.body.kind === "sequence" && !passed) {
+        cursor.sequenceIndex++;
+        if (cursor.sequenceIndex < grammar.body.actions.length) break;
+        cursor.sequenceIndex = 0;
+      }
       if (count === "until-pass") {
         cursor.done = passed;
         if (!cursor.done) cursor.repeatCount++;
@@ -101,9 +106,11 @@ export function resolveLegalActions(
       return { actions: [grammar.actions[cursor.sequenceIndex]], canPass: false };
     case "repeat": {
       const body = resolveLegalActions(grammar.body, cursor);
+      // Mid-iteration of a sequence body, the player cannot stop the repeat.
+      const atBoundary = cursor.sequenceIndex === 0;
       if (grammar.count === "until-pass") {
         // The pass option is a property of the repeat count, not the body.
-        return { actions: body.actions, canPass: true };
+        return { actions: body.actions, canPass: atBoundary };
       }
       if (typeof grammar.count === "number") {
         return { actions: body.actions, canPass: false };
@@ -113,7 +120,7 @@ export function resolveLegalActions(
       }
       // { min?, max? } range.
       const min = grammar.count.min ?? 0;
-      return { actions: body.actions, canPass: cursor.repeatCount >= min };
+      return { actions: body.actions, canPass: atBoundary && cursor.repeatCount >= min };
     }
   }
 }

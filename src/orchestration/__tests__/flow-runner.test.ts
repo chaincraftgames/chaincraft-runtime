@@ -805,6 +805,185 @@ describe('nextPlayerTurnWork: repeat until', () => {
 });
 
 // ---------------------------------------------------------------------------
+// repeat with a sequence body — the body's steps run in order each iteration.
+// ---------------------------------------------------------------------------
+
+describe('nextPlayerTurnWork: repeat of a sequence', () => {
+  const module = makeModule({ kind: 'game', id: 'root', children: [] }, ['act-a', 'act-b']);
+  const body: Grammar = { kind: 'sequence', actions: ['act-a', 'act-b'] };
+
+  function tags(signal: PlayerTurnSignal): string[] {
+    return expectWorkEnqueue(signal).map((i) => (i as EffectQueueItem).effect as unknown as { tag: string }).map((e) => e.tag);
+  }
+
+  it('fixed count: runs a,b,a,b then done', () => {
+    const state = createGameExecutionState();
+    const grammar: Grammar = { kind: 'repeat', body, count: 2 };
+    const cursor = { sequenceIndex: 0, repeatCount: 0, done: false };
+
+    const run: string[] = [];
+    for (let i = 0; i < 4; i++) run.push(...tags(nextPlayerTurnWork('p1', cursor, grammar, state, module)));
+
+    expect(run).toEqual(['act-a', 'act-b', 'act-a', 'act-b']);
+    expect(nextPlayerTurnWork('p1', cursor, grammar, state, module).kind).toBe('done');
+  });
+
+  it('until: the predicate is checked only after the whole body', () => {
+    const state = createGameExecutionState();
+    const seenAt: number[] = [];
+    const cursor = { sequenceIndex: 0, repeatCount: 0, done: false };
+    const grammar: Grammar = {
+      kind: 'repeat',
+      body,
+      count: { endCondition: () => { seenAt.push(cursor.sequenceIndex); return true; } },
+    };
+
+    expect(tags(nextPlayerTurnWork('p1', cursor, grammar, state, module))).toEqual(['act-a']);
+    expect(tags(nextPlayerTurnWork('p1', cursor, grammar, state, module))).toEqual(['act-b']);
+    expect(nextPlayerTurnWork('p1', cursor, grammar, state, module).kind).toBe('done');
+    expect(seenAt).toEqual([0]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// optional sequence steps — skipped (no prompt, no action:start) when unavailable.
+// ---------------------------------------------------------------------------
+
+describe('nextPlayerTurnWork: optional sequence steps', () => {
+  let open = true;
+  beforeEach(() => { open = true; });
+
+  // act-b: input-free, available only while `open`. act-c: one number input, same gate.
+  const base = makeModule({ kind: 'game', id: 'root', children: [] }, ['act-a', 'act-b', 'act-c']);
+  const module: CompiledGameModule = {
+    ...base,
+    actions: {
+      ...base.actions,
+      'act-b': { ...base.actions['act-b'], precondition: () => open },
+      'act-c': {
+        ...base.actions['act-c'],
+        precondition: () => open,
+        segments: [{ inputs: [{ id: 'n', type: { kind: 'number', min: 1, max: 3 } }], effects: [] }],
+      },
+    },
+  };
+
+  function started(state: GameExecutionState): string[] {
+    const ids: string[] = [];
+    state.session.events.on('action:start', (e) => ids.push((e as { actionId: string }).actionId));
+    return ids;
+  }
+
+  function tags(signal: PlayerTurnSignal): string[] {
+    return expectWorkEnqueue(signal).map((i) => ((i as EffectQueueItem).effect as unknown as { tag: string }).tag);
+  }
+
+  const cursorAt0 = () => ({ sequenceIndex: 0, repeatCount: 0, done: false });
+  const step = (c: ReturnType<typeof cursorAt0>, g: Grammar, state: GameExecutionState) =>
+    nextPlayerTurnWork('p1', c, g, state, module);
+
+  it('skips an unavailable optional step and goes straight to the next', () => {
+    open = false;
+    const state = createGameExecutionState();
+    const ids = started(state);
+    const grammar: Grammar = { kind: 'sequence', actions: ['act-b', 'act-a'], optional: [true, false] };
+    const cursor = cursorAt0();
+
+    expect(tags(step(cursor, grammar, state))).toEqual(['act-a']);
+    expect(ids).toEqual(['act-a']);
+    expect(step(cursor, grammar, state).kind).toBe('done');
+  });
+
+  it('an optional last step that is unavailable ends the sequence', () => {
+    open = false;
+    const state = createGameExecutionState();
+    const ids = started(state);
+    const grammar: Grammar = { kind: 'sequence', actions: ['act-a', 'act-b'], optional: [false, true] };
+    const cursor = cursorAt0();
+
+    expect(tags(step(cursor, grammar, state))).toEqual(['act-a']);
+    expect(step(cursor, grammar, state).kind).toBe('done');
+    expect(cursor.done).toBe(true);
+    expect(ids).toEqual(['act-a']);
+  });
+
+  it('an available optional step with no inputs auto-executes', () => {
+    const state = createGameExecutionState();
+    const ids = started(state);
+    const grammar: Grammar = { kind: 'sequence', actions: ['act-b'], optional: [true] };
+
+    expect(tags(step(cursorAt0(), grammar, state))).toEqual(['act-b']);
+    expect(ids).toEqual(['act-b']);
+  });
+
+  it('an available optional step with inputs enqueues its input', () => {
+    const state = createGameExecutionState();
+    const grammar: Grammar = { kind: 'sequence', actions: ['act-c'], optional: [true] };
+
+    const items = expectWorkEnqueue(step(cursorAt0(), grammar, state));
+    expect(items.map((i) => i.kind)).toEqual(['input']);
+  });
+
+  it('a non-optional unavailable step still throws', () => {
+    open = false;
+    const state = createGameExecutionState();
+    const grammar: Grammar = { kind: 'sequence', actions: ['act-b'] };
+
+    expect(() => step(cursorAt0(), grammar, state)).toThrow('no legal actions');
+  });
+
+  it('a non-optional unavailable step throws even when a later step is optional', () => {
+    open = false;
+    const state = createGameExecutionState();
+    const grammar: Grammar = { kind: 'sequence', actions: ['act-b', 'act-b'], optional: [false, true] };
+
+    expect(() => step(cursorAt0(), grammar, state)).toThrow('no legal actions');
+  });
+
+  it('a repeat iteration in which every step is skipped throws', () => {
+    open = false;
+    const state = createGameExecutionState();
+    const grammar: Grammar = {
+      kind: 'repeat',
+      body: { kind: 'sequence', actions: ['act-b', 'act-b'], optional: [true, true] },
+      count: 3,
+    };
+
+    expect(() => step(cursorAt0(), grammar, state)).toThrow('no legal actions');
+  });
+
+  it('inside repeat until: a skipped last step still ends the iteration and checks the predicate', () => {
+    open = false;
+    const state = createGameExecutionState();
+    const ids = started(state);
+    const grammar: Grammar = {
+      kind: 'repeat',
+      body: { kind: 'sequence', actions: ['act-a', 'act-b'], optional: [false, true] },
+      count: { endCondition: () => true },
+    };
+    const cursor = cursorAt0();
+
+    expect(tags(step(cursor, grammar, state))).toEqual(['act-a']);
+    expect(step(cursor, grammar, state).kind).toBe('done');
+    expect(ids).toEqual(['act-a']);
+  });
+
+  it('inside repeat until: an available optional step runs before the predicate is checked', () => {
+    const state = createGameExecutionState();
+    const grammar: Grammar = {
+      kind: 'repeat',
+      body: { kind: 'sequence', actions: ['act-a', 'act-b'], optional: [false, true] },
+      count: { endCondition: () => true },
+    };
+    const cursor = cursorAt0();
+
+    expect(tags(step(cursor, grammar, state))).toEqual(['act-a']);
+    expect(tags(step(cursor, grammar, state))).toEqual(['act-b']);
+    expect(step(cursor, grammar, state).kind).toBe('done');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Integration — RPS-shaped flow driven through step()
 // (Full step() integration awaits step() fork-mode implementation.)
 // ---------------------------------------------------------------------------
