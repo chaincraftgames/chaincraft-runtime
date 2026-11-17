@@ -8,7 +8,11 @@
 // controller executes whatever this resolver produces.
 // ---------------------------------------------------------------------------
 
-import type { CompiledGameModule, Grammar } from "#chaincraft/types.js";
+import type {
+  CompiledGameModule,
+  Grammar,
+  RepeatGrammar,
+} from "#chaincraft/types.js";
 import type {
   GameExecutionState,
   OptionsResolver,
@@ -52,7 +56,22 @@ export function nextPlayerTurnWork(
   nodeLabel?: string,
   resolveOptions: OptionsResolver = defaultResolveOptions,
 ): PlayerTurnSignal {
-  return workAt(playerId, cursor, grammar, state, module, nodeLabel, resolveOptions, 0);
+  return workAt(
+    playerId,
+    cursor,
+    grammar,
+    state,
+    module,
+    nodeLabel,
+    resolveOptions,
+    0,
+  );
+}
+
+/** Whether the repeat finishes by counting iterations alone, even if every step is skipped. */
+function endsByCounting(count: RepeatGrammar["count"]): boolean {
+  if (typeof count === "number") return true;
+  return count !== "until-pass" && count.max !== undefined;
 }
 
 /** `skipped` counts optional steps skipped so far in this call chain. */
@@ -82,33 +101,57 @@ function workAt(
     return { kind: "done" };
   }
 
-  const { actions: structuralActions, canPass } = resolveLegalActions(grammar, cursor);
+  const { actions: structuralActions, canPass } = resolveLegalActions(
+    grammar,
+    cursor,
+  );
   const sequence =
-    grammar.kind === "sequence" ? grammar : grammar.kind === "repeat" && grammar.body.kind === "sequence" ? grammar.body : undefined;
+    grammar.kind === "sequence"
+      ? grammar
+      : grammar.kind === "repeat" && grammar.body.kind === "sequence"
+        ? grammar.body
+        : undefined;
 
   // Offer only actions whose precondition holds and whose inputs can all be answered.
   const actions = structuralActions.filter((id) => {
     const def = module.actions[id];
-    if (def?.precondition && !def.precondition(state.session, playerId)) return false;
-    return !def || hasCompletion(
-      state, 
-      def.segments[0]?.inputs ?? [], 
-      playerId, 
-      {}, 
-      resolveOptions
+    if (def?.precondition && !def.precondition(state.session, playerId))
+      return false;
+    return (
+      !def ||
+      hasCompletion(
+        state,
+        def.segments[0]?.inputs ?? [],
+        playerId,
+        {},
+        resolveOptions,
+      )
     );
   });
 
   if (actions.length === 0 && sequence?.optional?.[cursor.sequenceIndex]) {
-    // Every step of one repeat iteration skipped means the repeat can never progress.
-    if (grammar.kind === "repeat" && skipped + 1 >= sequence.actions.length) {
+    // Skipping changes no state, so a repeat that only ends on pass or a predicate would spin.
+    if (
+      grammar.kind === "repeat" &&
+      !endsByCounting(grammar.count) &&
+      skipped + 1 >= sequence.actions.length
+    ) {
       throw new GameRuntimeError(
         "no-legal-actions",
         `Player "${playerId}" has no legal actions at node "${nodeLabel ?? "unknown"}" — every step of a repeated sequence was skipped`,
       );
     }
     advanceGrammarCursor(cursor, grammar, false);
-    return workAt(playerId, cursor, grammar, state, module, nodeLabel, resolveOptions, skipped + 1);
+    return workAt(
+      playerId,
+      cursor,
+      grammar,
+      state,
+      module,
+      nodeLabel,
+      resolveOptions,
+      skipped + 1,
+    );
   }
 
   if (actions.length === 0 && !canPass) {
@@ -123,7 +166,12 @@ function workAt(
     const actionId = actions[0];
     const items = explodeAction(actionId, playerId, module);
     advanceGrammarCursor(cursor, grammar, false, actionId);
-    state.session.events.emit({ kind: "action:start", playerId, actionId, auto: true });
+    state.session.events.emit({
+      kind: "action:start",
+      playerId,
+      actionId,
+      auto: true,
+    });
     return { kind: "enqueue", items };
   }
 
@@ -155,14 +203,28 @@ export function explodeAction(
 ): QueueItem[] {
   const items: QueueItem[] = [];
   const action = module.actions[actionId];
-  if (!action) throw new GameRuntimeError("action-unknown", `Action "${actionId}" not found in module`);
+  if (!action)
+    throw new GameRuntimeError(
+      "action-unknown",
+      `Action "${actionId}" not found in module`,
+    );
   const group: QueueGroup = { actorId, actionId, collected: {} };
   for (const [segmentIndex, segment] of action.segments.entries()) {
     for (const input of segment.inputs) {
-      items.push({ kind: "input" as const, input, group, segment: segmentIndex });
+      items.push({
+        kind: "input" as const,
+        input,
+        group,
+        segment: segmentIndex,
+      });
     }
     for (const effect of segment.effects) {
-      items.push({ kind: "effect" as const, effect, group, segment: segmentIndex });
+      items.push({
+        kind: "effect" as const,
+        effect,
+        group,
+        segment: segmentIndex,
+      });
     }
   }
   return items;

@@ -940,16 +940,40 @@ describe('nextPlayerTurnWork: optional sequence steps', () => {
     expect(() => step(cursorAt0(), grammar, state)).toThrow('no legal actions');
   });
 
-  it('a repeat iteration in which every step is skipped throws', () => {
+  it.each([
+    ['until-pass', 'until-pass' as const],
+    ['a range without max', { min: 0 }],
+    ['until without max', { endCondition: () => false }],
+  ])('a repeat with %s in which every step is skipped throws (it could never end)', (_name, count) => {
     open = false;
     const state = createGameExecutionState();
     const grammar: Grammar = {
       kind: 'repeat',
       body: { kind: 'sequence', actions: ['act-b', 'act-b'], optional: [true, true] },
-      count: 3,
+      count,
     };
 
     expect(() => step(cursorAt0(), grammar, state)).toThrow('no legal actions');
+  });
+
+  it.each([
+    ['a fixed count', 3],
+    ['a range with max', { max: 3 }],
+    ['until with max', { endCondition: () => false, max: 3 }],
+  ])('a repeat with %s in which every step is skipped runs out its count and is done', (_name, count) => {
+    open = false;
+    const state = createGameExecutionState();
+    const ids = started(state);
+    const grammar: Grammar = {
+      kind: 'repeat',
+      body: { kind: 'sequence', actions: ['act-b', 'act-b'], optional: [true, true] },
+      count,
+    };
+    const cursor = cursorAt0();
+
+    expect(step(cursor, grammar, state).kind).toBe('done');
+    expect(cursor.done).toBe(true);
+    expect(ids).toEqual([]);
   });
 
   it('inside repeat until: a skipped last step still ends the iteration and checks the predicate', () => {
