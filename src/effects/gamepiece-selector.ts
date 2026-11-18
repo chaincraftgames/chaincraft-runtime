@@ -78,6 +78,13 @@ export function selectGamepieceRefs(
   const scope = invConfig?.scope ?? "game";
 
   const sources = resolveSources(session, ctx, sel, scope);
+  const matches = (pieceId: string): boolean => {
+    if (sel.ofType && session.state.gamepieces[pieceId]?.typeId !== sel.ofType) return false;
+    if (sel.filter) {
+      return sel.filter(session, pieceId, ctx.actorId ?? undefined, ctx.actionInputs);
+    }
+    return true;
+  };
 
   // Handle { id: ... } select mode
   if (typeof sel.select === "object" && "id" in sel.select) {
@@ -91,7 +98,9 @@ export function selectGamepieceRefs(
     if (!pieceId) return [];
     // Return the piece if it's actually in one of the resolved inventories
     for (const { inventory, ownerId } of sources) {
-      if (inventory.has(pieceId)) return [{ pieceId, inventory, ownerId }];
+      if (inventory.has(pieceId)) {
+        return matches(pieceId) ? [{ pieceId, inventory, ownerId }] : [];
+      }
     }
     return [];
   }
@@ -102,22 +111,7 @@ export function selectGamepieceRefs(
   const results: SelectedPiece[] = [];
 
   for (const { inventory: inv, ownerId } of sources) {
-    let selected = inv.select(selectMode, count, session.rng);
-
-    // Filter by gamepiece type if specified
-    if (sel.ofType) {
-      selected = selected.filter((id) => {
-        const piece = session.state.gamepieces[id];
-        return piece && piece.typeId === sel.ofType;
-      });
-    }
-
-    if (sel.filter) {
-      selected = selected.filter((id) =>
-        sel.filter!(session, id, ctx.actorId ?? undefined, ctx.actionInputs),
-      );
-    }
-
+    const selected = inv.select(selectMode, count, session.rng).filter(matches);
     results.push(...selected.map((pieceId) => ({ pieceId, inventory: inv, ownerId })));
   }
 

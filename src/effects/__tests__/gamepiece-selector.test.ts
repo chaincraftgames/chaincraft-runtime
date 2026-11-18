@@ -104,3 +104,61 @@ describe('selectGamepieces — filter', () => {
     expect(calls).toEqual([['p1', { pick: 'd2' }], ['p1', { pick: 'd2' }]]);
   });
 });
+
+describe('selectGamepieces — select by id', () => {
+  it('returns the piece when it is in a resolved inventory', () => {
+    const ids = selectGamepieces(makeSession(), ctx('p1'), {
+      inventory: 'cup', select: { id: 'd1' },
+    });
+    expect(ids).toEqual(['d1']);
+  });
+
+  it('applies the filter', () => {
+    const session = makeSession();
+    const keep = selectGamepieces(session, ctx('p1'), {
+      inventory: 'cup', select: { id: 'd1' }, filter: () => true,
+    });
+    const drop = selectGamepieces(session, ctx('p1'), {
+      inventory: 'cup', select: { id: 'd1' }, filter: () => false,
+    });
+    expect(keep).toEqual(['d1']);
+    expect(drop).toEqual([]);
+  });
+
+  it('passes the actor and action inputs to the filter', () => {
+    const calls: unknown[][] = [];
+    selectGamepieces(
+      makeSession(),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { actorId: 'p1', actionInputs: { pick: 'd2' }, effectDef: {} } as EffectContext<any>,
+      {
+        inventory: 'cup',
+        select: { id: { param: 'pick' } },
+        filter: (_s, pieceId, actorId, inputs) => {
+          calls.push([pieceId, actorId, inputs]);
+          return true;
+        },
+      },
+    );
+    expect(calls).toEqual([['d2', 'p1', { pick: 'd2' }]]);
+  });
+
+  it('applies ofType', () => {
+    const session = makeSession();
+    const match = selectGamepieces(session, ctx('p1'), {
+      inventory: 'cup', select: { id: 'd1' }, ofType: 'die',
+    });
+    const mismatch = selectGamepieces(session, ctx('p1'), {
+      inventory: 'cup', select: { id: 'd1' }, ofType: 'card',
+    });
+    expect(match).toEqual(['d1']);
+    expect(mismatch).toEqual([]);
+  });
+
+  it('returns nothing when the piece is not in a resolved inventory', () => {
+    const ids = selectGamepieces(makeSession(), ctx('p1'), {
+      inventory: 'cup', select: { id: 'd3' },
+    });
+    expect(ids).toEqual([]);
+  });
+});
